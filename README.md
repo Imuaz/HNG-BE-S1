@@ -63,6 +63,7 @@ Two simple options to deploy this app on Railway:
    - The `Procfile` and `Dockerfile` are present; Railway will respect either route.
 
 After deployment, Railway provides a `PORT` env var; the app uses that to bind Uvicorn.
+Note: The `Procfile` and `Dockerfile` are configured to expand the `PORT` environment variable at runtime. Railway sets `PORT` automatically; the app falls back to 8000 when not provided.
 
 ## Security & env
 
