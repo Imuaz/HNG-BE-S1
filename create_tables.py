@@ -8,7 +8,6 @@ Run this once to set up your database:
 """
 
 from app.database import engine, Base
-from app.database import engine, Base
 from app.models import StringModel  # Import required to register model with Base.metadata
 
 def create_tables():
