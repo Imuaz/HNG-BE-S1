@@ -169,21 +169,3 @@ def analyze_string(value: str) -> Dict:
         "sha256_hash": compute_sha256_hash(value),
         "character_frequency_map": compute_character_frequency(value)
     }
-
-
-# # Test the functions (you can run this file directly to test)
-# if __name__ == "__main__":
-#     # Test cases
-#     test_strings = [
-#         "hello world",
-#         "racecar",
-#         "A man a plan a canal Panama",
-#         "aaa",
-#         ""
-#     ]
-    
-#     for test_str in test_strings:
-#         print(f"\nAnalyzing: '{test_str}'")
-#         result = analyze_string(test_str)
-#         for key, value in result.items():
-#             print(f"  {key}: {value}")

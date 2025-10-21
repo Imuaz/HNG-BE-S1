@@ -84,20 +84,3 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-# Test the connection (run this file directly to test)
-# if __name__ == "__main__":
-#     try:
-#         # Try to connect
-#         connection = engine.connect()
-#         print("✅ Database connection successful!")
-#         print(f"Connected to: {DATABASE_URL}")
-#         connection.close()
-#     except Exception as e:
-#         print("❌ Database connection failed!")
-#         print(f"Error: {e}")
-#         print("\nTroubleshooting:")
-#         print("1. Is PostgreSQL running?")
-#         print("2. Is the DATABASE_URL correct in .env file?")
-#         print("3. Does the database 'string_analyzer' exist?")
