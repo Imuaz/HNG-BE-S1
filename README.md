@@ -69,3 +69,4 @@ Note: The `Procfile` and `Dockerfile` are configured to expand the `PORT` enviro
 
 - Don't commit `.env` with secrets. Use Railway environment variables or the Postgres add-on.
 - Use HTTPS endpoints and configure connection pooling for production databases.
+Note: For local development the app will fall back to a local sqlite database when `DATABASE_URL` is not set or invalid. In production (Railway) you must set `DATABASE_URL` to a valid Postgres connection string (Railway provides this via the Postgres plugin or environment variables).

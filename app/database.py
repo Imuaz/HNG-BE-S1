@@ -1,5 +1,6 @@
 import os
 from sqlalchemy import create_engine
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
@@ -10,6 +11,20 @@ load_dotenv()
 # Get database URL from environment variable
 # Format: postgresql://user:password@host:port/database
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Validate DATABASE_URL and provide a safe fallback for local/dev
+if not DATABASE_URL:
+    # No DATABASE_URL provided — fallback to a local sqlite file for development.
+    # This prevents import-time crashes when running in environments without a DB.
+    print("Warning: DATABASE_URL not set; falling back to sqlite:///./dev.db (development only)")
+    DATABASE_URL = "sqlite:///./dev.db"
+else:
+    # Quick sanity check — try parsing the URL so we can give a helpful error message
+    try:
+        make_url(DATABASE_URL)
+    except Exception as e:
+        print(f"Warning: DATABASE_URL appears invalid ({e}); falling back to sqlite:///./dev.db for development")
+        DATABASE_URL = "sqlite:///./dev.db"
 
 """
 What is create_engine?
