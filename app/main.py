@@ -40,6 +40,24 @@ app = FastAPI(
     redoc_url="/redoc"  # ReDoc at /redoc
 )
 
+
+# Lightweight ping endpoint to verify the app is reachable without touching the DB
+@app.get("/ping", include_in_schema=False)
+def ping():
+    return {"ok": True}
+
+
+# Global exception handler that returns 500 and logs the exception for diagnostics
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    # Log the full exception to stdout/stderr (Railway will capture this)
+    import traceback, sys
+    traceback.print_exc(file=sys.stdout)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
+
 """
 What is FastAPI instance?
 - 'app' is the main application object
