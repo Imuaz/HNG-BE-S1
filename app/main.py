@@ -7,7 +7,7 @@ Run with: uvicorn app.main:app --reload
 """
 
 from fastapi import FastAPI, Depends, HTTPException, status, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import Optional
@@ -107,7 +107,7 @@ def create_and_analyze_string(
                 "is_palindrome": db_string.is_palindrome,
                 "unique_characters": db_string.unique_characters,
                 "word_count": db_string.word_count,
-                "sha256_hash": db_string.sha256_hash,
+                "sha256_hash": db_string.id,
                 "character_frequency_map": db_string.character_frequency_map
             },
             created_at=db_string.created_at
@@ -176,7 +176,7 @@ def get_specific_string(
             "is_palindrome": db_string.is_palindrome,
             "unique_characters": db_string.unique_characters,
             "word_count": db_string.word_count,
-            "sha256_hash": db_string.sha256_hash,
+                "sha256_hash": db_string.id,
             "character_frequency_map": db_string.character_frequency_map
         },
         created_at=db_string.created_at
@@ -256,7 +256,7 @@ def list_strings(
                     "is_palindrome": db_string.is_palindrome,
                     "unique_characters": db_string.unique_characters,
                     "word_count": db_string.word_count,
-                    "sha256_hash": db_string.sha256_hash,
+                    "sha256_hash": db_string.id,
                     "character_frequency_map": db_string.character_frequency_map
                 },
                 created_at=db_string.created_at
@@ -360,7 +360,7 @@ def filter_by_natural_language(
                         "is_palindrome": db_string.is_palindrome,
                         "unique_characters": db_string.unique_characters,
                         "word_count": db_string.word_count,
-                        "sha256_hash": db_string.sha256_hash,
+                        "sha256_hash": db_string.id,
                         "character_frequency_map": db_string.character_frequency_map
                     },
                     created_at=db_string.created_at
@@ -477,8 +477,12 @@ def health_check(db: Session = Depends(get_db)):
             "database": "connected"
         }
     except Exception as e:
-        return {
-            "status": "unhealthy",
-            "database": "disconnected",
-            "error": str(e)
-        }
+        # Return Service Unavailable so orchestrators can detect unhealthy instances
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "database": "disconnected",
+                "error": str(e)
+            }
+        )

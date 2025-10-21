@@ -83,11 +83,7 @@ class StringModel(Base):
     Filter by: "single word strings" (word_count=1)
     """
     
-    sha256_hash = Column(String, nullable=False)
-    """
-    We store this even though it's the same as 'id' for clarity.
-    It appears in the response JSON, so users see it explicitly.
-    """
+    # sha256_hash column removed: use `id` (SHA-256) as primary key instead
     
     character_frequency_map = Column(JSON, nullable=False)
     """
@@ -142,7 +138,7 @@ class StringModel(Base):
                 "is_palindrome": self.is_palindrome,
                 "unique_characters": self.unique_characters,
                 "word_count": self.word_count,
-                "sha256_hash": self.sha256_hash,
+                "sha256_hash": self.id,
                 "character_frequency_map": self.character_frequency_map
             },
             "created_at": self.created_at.isoformat()  # Convert datetime to string
