@@ -86,6 +86,8 @@ uvicorn app.main:app --reload
 
 ## Testing
 
+### Unit Tests
+
 Run the test suite:
 
 ```bash
@@ -96,6 +98,21 @@ python test_crud.py
 python test_nlp_parser.py
 python test_api.py  # Requires API to be running
 ```
+
+### Deployment Tests
+
+Before deploying, run the deployment test script to verify everything is working:
+
+```bash
+python test_deployment.py
+```
+
+This script validates:
+
+- Database URL configuration and cleaning
+- Database connectivity
+- Application startup
+- Basic API functionality
 
 ## Environment Variables
 
