@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import Optional
 
-from app.database import get_db
+from app.database import get_db, engine
 from app.schemas import (
     StringCreate,
     StringResponse,
@@ -52,6 +52,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Startup event to validate database connection.
+    This will fail fast if the database is not accessible.
+    """
+    try:
+        from sqlalchemy import text
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        print("✅ Database connection validated successfully")
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+        raise
 
 """
 CORS (Cross-Origin Resource Sharing):
