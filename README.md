@@ -1,72 +1,130 @@
-# String Analyzer API
+# String Analyzer API 🔤
 
-Lightweight FastAPI application that analyzes strings and stores their computed properties in a PostgreSQL database.
+A RESTful API service that analyzes strings and stores their computed properties.
 
-Quick start
+## Features
 
-1. Create a virtual environment and install dependencies:
+- ✅ Analyze strings (length, palindrome status, word count, SHA-256 hash, etc.)
+- ✅ Store analyzed strings in PostgreSQL
+- ✅ Filter strings by various properties
+- ✅ Natural language query support
+- ✅ Automatic API documentation (Swagger UI)
 
+## Tech Stack
+
+- **Backend:** FastAPI (Python)
+- **Database:** PostgreSQL (Neon Cloud)
+- **Deployment:** Railway
+- **ORM:** SQLAlchemy
+- **Validation:** Pydantic
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `POST /strings` | POST | Create and analyze a new string |
+| `GET /strings/{value}` | GET | Retrieve a specific string |
+| `GET /strings` | GET | List all strings with optional filters |
+| `GET /strings/filter-by-natural-language` | GET | Filter using natural language |
+| `DELETE /strings/{value}` | DELETE | Delete a string |
+
+## Documentation
+
+Once deployed, visit:
+- **Swagger UI:** `https://your-app.up.railway.app/docs`
+- **ReDoc:** `https://your-app.up.railway.app/redoc`
+
+## Local Development
+
+### Prerequisites
+- Python 3.11+
+- PostgreSQL (or use Neon cloud database)
+
+### Setup
+
+1. Clone the repository:
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+git clone <your-repo-url>
+cd string-analyzer-api
+```
+
+2. Create virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
+```bash
 pip install -r requirements.txt
 ```
 
-2. Set `DATABASE_URL` in a `.env` file (example):
-
+4. Create `.env` file:
+```bash
+DATABASE_URL=postgresql://user:password@host:port/database
 ```
-DATABASE_URL=postgresql://user:password@localhost:5432/dbname
-```
 
-3. Create tables (development only):
-
+5. Initialize database:
 ```bash
 python create_tables.py
 ```
 
-4. Run the API:
-
+6. Run the API:
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Applying the migration to remove the redundant `sha256_hash` column
+7. Visit: `http://127.0.0.1:8000/docs`
 
+## Testing
+
+Run the test suite:
 ```bash
-python migrations/apply_migration.py migrations/0001_drop_sha256_hash.sql
+python test_analyzer.py
+python test_database.py
+python test_schemas.py
+python test_crud.py
+python test_nlp_parser.py
+python test_api.py  # Requires API to be running
 ```
 
-Notes & recommendations
+## Environment Variables
 
-- For production use, enable Alembic for migrations instead of the ad-hoc SQL script in `migrations/`.
-- Add CI (GitHub Actions) to run linting (ruff/flake8), formatting (black), and tests.
-- Add automated tests that run against a test database (use Docker or a CI-provided DB).
-- Prefer logging over `print()` inside library modules; keep `print()` in test scripts or example harnesses.
-- Consider separating liveness and readiness endpoints (readiness should check DB connectivity).
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | PostgreSQL connection string | Yes |
+| `PORT` | Port to run the server on | No (Railway sets this) |
 
-## Deploying to Railway
+## Railway Deployment
 
-Two simple options to deploy this app on Railway:
+1. Connect your GitHub repository to Railway
+2. Railway will automatically detect the configuration
+3. Add `DATABASE_URL` environment variable (use your Neon database URL)
+4. Railway will build and deploy automatically
 
-1. Deploy using the GitHub integration (automatic build)
+## Example Queries
 
-   - Push this repo to GitHub and connect Railway to the repository.
-   - Railway will detect the project. Make sure the `Start Command` (or Procfile) is:
+### Create a string
+```bash
+curl -X POST "https://your-app.up.railway.app/strings" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "hello world"}'
+```
 
-     web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+### Filter palindromes
+```bash
+curl "https://your-app.up.railway.app/strings?is_palindrome=true"
+```
 
-   - Add `DATABASE_URL` as a Railway Postgres plugin or environment variable in the Railway project settings.
+### Natural language query
+```bash
+curl "https://your-app.up.railway.app/strings/filter-by-natural-language?query=all%20single%20word%20palindromes"
+```
 
-2. Deploy using Docker on Railway
+## License
 
-   - Railway supports Docker deployments. The included `Dockerfile` produces a slim image.
-   - The `Procfile` and `Dockerfile` are present; Railway will respect either route.
+MIT
 
-After deployment, Railway provides a `PORT` env var; the app uses that to bind Uvicorn.
-Note: The `Procfile` and `Dockerfile` are configured to expand the `PORT` environment variable at runtime. Railway sets `PORT` automatically; the app falls back to 8000 when not provided.
+## Author
 
-## Security & env
-
-- Don't commit `.env` with secrets. Use Railway environment variables or the Postgres add-on.
-- Use HTTPS endpoints and configure connection pooling for production databases.
-  Note: For local development the app will fall back to a local sqlite database when `DATABASE_URL` is not set or invalid. In production (Railway) you must set `DATABASE_URL` to a valid Postgres connection string (Railway provides this via the Postgres plugin or environment variables).
+Built with ❤️ using FastAPI

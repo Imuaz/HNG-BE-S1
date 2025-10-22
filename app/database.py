@@ -1,6 +1,5 @@
 import os
 from sqlalchemy import create_engine
-from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
@@ -12,19 +11,11 @@ load_dotenv()
 # Format: postgresql://user:password@host:port/database
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Validate DATABASE_URL and provide a safe fallback for local/dev
-if not DATABASE_URL:
-    # No DATABASE_URL provided — fallback to a local sqlite file for development.
-    # This prevents import-time crashes when running in environments without a DB.
-    print("Warning: DATABASE_URL not set; falling back to sqlite:///./dev.db (development only)")
-    DATABASE_URL = "sqlite:///./dev.db"
-else:
-    # Quick sanity check — try parsing the URL so we can give a helpful error message
-    try:
-        make_url(DATABASE_URL)
-    except Exception as e:
-        print(f"Warning: DATABASE_URL appears invalid ({e}); falling back to sqlite:///./dev.db for development")
-        DATABASE_URL = "sqlite:///./dev.db"
+# Railway provides DATABASE_URL but we may need to handle different formats
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    # Railway sometimes uses 'postgres://' instead of 'postgresql://'
+    # SQLAlchemy needs 'postgresql://'
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 """
 What is create_engine?
@@ -35,9 +26,14 @@ without reconnecting each time.
 
 Parameters:
 - DATABASE_URL: Where to find the database
-- echo=True: Prints SQL queries to console (useful for learning/debugging)
+- echo=False: Don't print SQL queries (set to True for debugging)
+- pool_pre_ping=True: Test connections before using them (prevents stale connections)
 """
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,  # Changed to False for production
+    pool_pre_ping=True  # Test connections before using
+)
 
 """
 What is SessionLocal?

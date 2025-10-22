@@ -7,7 +7,8 @@ Run with: uvicorn app.main:app --reload
 """
 
 from fastapi import FastAPI, Depends, HTTPException, status, Query
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import Optional
@@ -40,23 +41,24 @@ app = FastAPI(
     redoc_url="/redoc"  # ReDoc at /redoc
 )
 
+# ============================================================================
+# CORS MIDDLEWARE (Allow cross-origin requests)
+# ============================================================================
 
-# Lightweight ping endpoint to verify the app is reachable without touching the DB
-@app.get("/ping", include_in_schema=False)
-def ping():
-    return {"ok": True}
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific domains
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-
-# Global exception handler that returns 500 and logs the exception for diagnostics
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    # Log the full exception to stdout/stderr (Railway will capture this)
-    import traceback, sys
-    traceback.print_exc(file=sys.stdout)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"}
-    )
+"""
+CORS (Cross-Origin Resource Sharing):
+- Allows frontend apps from different domains to access your API
+- In production, replace ["*"] with specific frontend URLs
+- Example: allow_origins=["https://myapp.com", "https://www.myapp.com"]
+"""
 
 """
 What is FastAPI instance?
@@ -194,7 +196,7 @@ def get_specific_string(
             "is_palindrome": db_string.is_palindrome,
             "unique_characters": db_string.unique_characters,
             "word_count": db_string.word_count,
-                "sha256_hash": db_string.id,
+            "sha256_hash": db_string.id,
             "character_frequency_map": db_string.character_frequency_map
         },
         created_at=db_string.created_at
@@ -495,12 +497,8 @@ def health_check(db: Session = Depends(get_db)):
             "database": "connected"
         }
     except Exception as e:
-        # Return Service Unavailable so orchestrators can detect unhealthy instances
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "unhealthy",
-                "database": "disconnected",
-                "error": str(e)
-            }
-        )
+        return {
+            "status": "unhealthy",
+            "database": "disconnected",
+            "error": str(e)
+        }
