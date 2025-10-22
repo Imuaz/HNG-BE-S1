@@ -159,169 +159,7 @@ def create_and_analyze_string(
 
 
 # ============================================================================
-# ENDPOINT 2: GET SPECIFIC STRING
-# ============================================================================
-
-@app.get(
-    "/strings/{string_value}",
-    response_model=StringResponse,
-    responses={
-        200: {"description": "String found"},
-        404: {"model": ErrorResponse, "description": "String not found"}
-    }
-)
-def get_specific_string(
-    string_value: str,
-    db: Session = Depends(get_db)
-):
-    """
-    Retrieve a specific string by its exact value.
-    
-    The string_value in the URL is matched exactly (case-sensitive).
-    
-    Args:
-        string_value: The exact string to retrieve (from URL path)
-        db: Database session (injected by FastAPI)
-    
-    Returns:
-        StringResponse with all properties
-    
-    Raises:
-        404 Not Found: If string doesn't exist
-    
-    Example:
-        GET /strings/hello%20world
-        (URL encoding: space becomes %20)
-    """
-    # Query database
-    db_string = get_string_by_value(db, string_value)
-    
-    # If not found, return 404
-    if db_string is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="String does not exist in the system"
-        )
-    
-    # Convert to response schema
-    return StringResponse(
-        id=db_string.id,
-        value=db_string.value,
-        properties={
-            "length": db_string.length,
-            "is_palindrome": db_string.is_palindrome,
-            "unique_characters": db_string.unique_characters,
-            "word_count": db_string.word_count,
-            "sha256_hash": db_string.id,
-            "character_frequency_map": db_string.character_frequency_map
-        },
-        created_at=db_string.created_at
-    )
-
-
-# ============================================================================
-# ENDPOINT 3: GET ALL STRINGS WITH FILTERING
-# ============================================================================
-
-@app.get(
-    "/strings",
-    response_model=StringListResponse,
-    responses={
-        200: {"description": "List of strings"},
-        400: {"model": ErrorResponse, "description": "Invalid query parameters"}
-    }
-)
-def list_strings(
-    is_palindrome: Optional[bool] = Query(None, description="Filter by palindrome status"),
-    min_length: Optional[int] = Query(None, ge=0, description="Minimum string length (inclusive)"),
-    max_length: Optional[int] = Query(None, ge=0, description="Maximum string length (inclusive)"),
-    word_count: Optional[int] = Query(None, ge=0, description="Exact word count"),
-    contains_character: Optional[str] = Query(None, min_length=1, max_length=1, description="Single character to search for"),
-    db: Session = Depends(get_db)
-):
-    """
-    Retrieve all strings with optional filtering.
-    
-    All query parameters are optional. If not provided, no filter is applied.
-    Multiple filters are combined with AND logic.
-    
-    Args:
-        is_palindrome: Filter by palindrome status (optional)
-        min_length: Minimum string length (optional)
-        max_length: Maximum string length (optional)
-        word_count: Exact word count (optional)
-        contains_character: Single character that must be present (optional)
-        db: Database session (injected by FastAPI)
-    
-    Returns:
-        StringListResponse with array of matching strings and metadata
-    
-    Examples:
-        GET /strings
-        GET /strings?is_palindrome=true
-        GET /strings?min_length=5&max_length=20
-        GET /strings?is_palindrome=true&word_count=1
-    """
-    # Validate max_length >= min_length
-    if min_length is not None and max_length is not None:
-        if max_length < min_length:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="max_length must be greater than or equal to min_length"
-            )
-    
-    # Query database with filters
-    db_strings = get_all_strings(
-        db,
-        is_palindrome=is_palindrome,
-        min_length=min_length,
-        max_length=max_length,
-        word_count=word_count,
-        contains_character=contains_character
-    )
-    
-    # Convert database models to response schemas
-    string_responses = []
-    for db_string in db_strings:
-        string_responses.append(
-            StringResponse(
-                id=db_string.id,
-                value=db_string.value,
-                properties={
-                    "length": db_string.length,
-                    "is_palindrome": db_string.is_palindrome,
-                    "unique_characters": db_string.unique_characters,
-                    "word_count": db_string.word_count,
-                    "sha256_hash": db_string.id,
-                    "character_frequency_map": db_string.character_frequency_map
-                },
-                created_at=db_string.created_at
-            )
-        )
-    
-    # Build filters_applied dict (only include non-None values)
-    filters_applied = {}
-    if is_palindrome is not None:
-        filters_applied["is_palindrome"] = is_palindrome
-    if min_length is not None:
-        filters_applied["min_length"] = min_length
-    if max_length is not None:
-        filters_applied["max_length"] = max_length
-    if word_count is not None:
-        filters_applied["word_count"] = word_count
-    if contains_character is not None:
-        filters_applied["contains_character"] = contains_character
-    
-    # Return list response
-    return StringListResponse(
-        data=string_responses,
-        count=len(string_responses),
-        filters_applied=filters_applied if filters_applied else None
-    )
-
-
-# ============================================================================
-# ENDPOINT 4: NATURAL LANGUAGE FILTERING
+# ENDPOINT 2: NATURAL LANGUAGE FILTERING (MUST COME BEFORE VARIABLE ROUTES!)
 # ============================================================================
 
 @app.get(
@@ -419,6 +257,168 @@ def filter_by_natural_language(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unable to parse natural language query: {str(e)}"
         )
+
+
+# ============================================================================
+# ENDPOINT 3: GET SPECIFIC STRING
+# ============================================================================
+
+@app.get(
+    "/strings/{string_value}",
+    response_model=StringResponse,
+    responses={
+        200: {"description": "String found"},
+        404: {"model": ErrorResponse, "description": "String not found"}
+    }
+)
+def get_specific_string(
+    string_value: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve a specific string by its exact value.
+    
+    The string_value in the URL is matched exactly (case-sensitive).
+    
+    Args:
+        string_value: The exact string to retrieve (from URL path)
+        db: Database session (injected by FastAPI)
+    
+    Returns:
+        StringResponse with all properties
+    
+    Raises:
+        404 Not Found: If string doesn't exist
+    
+    Example:
+        GET /strings/hello%20world
+        (URL encoding: space becomes %20)
+    """
+    # Query database
+    db_string = get_string_by_value(db, string_value)
+    
+    # If not found, return 404
+    if db_string is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="String does not exist in the system"
+        )
+    
+    # Convert to response schema
+    return StringResponse(
+        id=db_string.id,
+        value=db_string.value,
+        properties={
+            "length": db_string.length,
+            "is_palindrome": db_string.is_palindrome,
+            "unique_characters": db_string.unique_characters,
+            "word_count": db_string.word_count,
+            "sha256_hash": db_string.id,
+            "character_frequency_map": db_string.character_frequency_map
+        },
+        created_at=db_string.created_at
+    )
+
+
+# ============================================================================
+# ENDPOINT 4: GET ALL STRINGS WITH FILTERING
+# ============================================================================
+
+@app.get(
+    "/strings",
+    response_model=StringListResponse,
+    responses={
+        200: {"description": "List of strings"},
+        400: {"model": ErrorResponse, "description": "Invalid query parameters"}
+    }
+)
+def list_strings(
+    is_palindrome: Optional[bool] = Query(None, description="Filter by palindrome status"),
+    min_length: Optional[int] = Query(None, ge=0, description="Minimum string length (inclusive)"),
+    max_length: Optional[int] = Query(None, ge=0, description="Maximum string length (inclusive)"),
+    word_count: Optional[int] = Query(None, ge=0, description="Exact word count"),
+    contains_character: Optional[str] = Query(None, min_length=1, max_length=1, description="Single character to search for"),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve all strings with optional filtering.
+    
+    All query parameters are optional. If not provided, no filter is applied.
+    Multiple filters are combined with AND logic.
+    
+    Args:
+        is_palindrome: Filter by palindrome status (optional)
+        min_length: Minimum string length (optional)
+        max_length: Maximum string length (optional)
+        word_count: Exact word count (optional)
+        contains_character: Single character that must be present (optional)
+        db: Database session (injected by FastAPI)
+    
+    Returns:
+        StringListResponse with array of matching strings and metadata
+    
+    Examples:
+        GET /strings
+        GET /strings?is_palindrome=true
+        GET /strings?min_length=5&max_length=20
+        GET /strings?is_palindrome=true&word_count=1
+    """
+    # Validate max_length >= min_length
+    if min_length is not None and max_length is not None:
+        if max_length < min_length:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="max_length must be greater than or equal to min_length"
+            )
+    
+    # Query database with filters
+    db_strings = get_all_strings(
+        db,
+        is_palindrome=is_palindrome,
+        min_length=min_length,
+        max_length=max_length,
+        word_count=word_count,
+        contains_character=contains_character
+    )
+    
+    # Convert database models to response schemas
+    string_responses = []
+    for db_string in db_strings:
+        string_responses.append(
+            StringResponse(
+                id=db_string.id,
+                value=db_string.value,
+                properties={
+                    "length": db_string.length,
+                    "is_palindrome": db_string.is_palindrome,
+                    "unique_characters": db_string.unique_characters,
+                    "word_count": db_string.word_count,
+                    "sha256_hash": db_string.id,
+                    "character_frequency_map": db_string.character_frequency_map
+                },
+                created_at=db_string.created_at
+            )
+        )
+    
+    # Build filters_applied dict (only include non-None values)
+    filters_applied = {}
+    if is_palindrome is not None:
+        filters_applied["is_palindrome"] = is_palindrome
+    if min_length is not None:
+        filters_applied["min_length"] = min_length
+    if max_length is not None:
+        filters_applied["max_length"] = max_length
+    if word_count is not None:
+        filters_applied["word_count"] = word_count
+    if contains_character is not None:
+        filters_applied["contains_character"] = contains_character
+    
+    # Return list response
+    return StringListResponse(
+        data=string_responses,
+        count=len(string_responses),
+        filters_applied=filters_applied if filters_applied else None
+    )
 
 
 # ============================================================================
