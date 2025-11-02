@@ -799,3 +799,177 @@ def get_translation_endpoint(
         metadata=translation.to_dict()["metadata"],
         created_at=translation.created_at
     )
+
+
+# ============================================================================
+# TELEX INTEGRATION & CHAT ENDPOINTS
+# ============================================================================
+
+@app.post(
+    "/webhook/telex",
+    response_model=TelexResponse,
+    tags=["Telex Integration"],
+    responses={
+        200: {"description": "Message processed successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid payload"}
+    }
+)
+def telex_webhook(
+    payload: TelexWebhookPayload,
+    db: Session = Depends(get_db)
+):
+    """
+    Webhook endpoint for Telex.im integration.
+    
+    Telex sends user messages here, and we respond with agent's reply.
+    
+    This endpoint:
+    1. Receives message from Telex user
+    2. Detects intent and processes request
+    3. Performs translation/analysis as needed
+    4. Stores conversation in database
+    5. Returns formatted response to Telex
+    
+    Example payload from Telex:
+    {
+        "user_id": "user_12345",
+        "message": "Translate 'hello' to Spanish",
+        "conversation_id": "conv_67890"
+    }
+    """
+    try:
+        from app.chat_handler import process_chat_message
+        
+        # Get conversation history for context
+        history = get_telex_conversation_history(db, payload.user_id, limit=5)
+        context = {
+            "last_text": history[0].user_message if history else None
+        }
+        
+        # Process the message
+        chat_response = process_chat_message(payload.message, context)
+        
+        # Store conversation in database
+        create_telex_conversation(
+            db=db,
+            telex_user_id=payload.user_id,
+            telex_conversation_id=payload.conversation_id,
+            telex_message_id=payload.message_id,
+            user_message=payload.message,
+            agent_response=chat_response["message"],
+            detected_intent=chat_response["intent"],
+            action_taken=chat_response["action_taken"],
+            context_data=context,
+            success=chat_response["success"]
+        )
+        
+        # Return response to Telex
+        return TelexResponse(
+            message=chat_response["message"],
+            success=chat_response["success"],
+            data=chat_response.get("data"),
+            error=None if chat_response["success"] else "Processing failed"
+        )
+        
+    except Exception as e:
+        # Log error and return friendly message
+        error_message = "Sorry, I encountered an error processing your request. Please try again!"
+        
+        # Still store failed conversation
+        try:
+            create_telex_conversation(
+                db=db,
+                telex_user_id=payload.user_id,
+                telex_conversation_id=payload.conversation_id,
+                telex_message_id=payload.message_id,
+                user_message=payload.message,
+                agent_response=error_message,
+                detected_intent="error",
+                action_taken="error",
+                success=False,
+                error_message=str(e)
+            )
+        except:
+            pass
+        
+        return TelexResponse(
+            message=error_message,
+            success=False,
+            data=None,
+            error=str(e)
+        )
+
+
+@app.post(
+    "/agents/multilingo/chat",
+    response_model=ChatResponse,
+    tags=["MultiLingo Agent"],
+    responses={
+        200: {"description": "Chat processed successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid message"}
+    }
+)
+def multilingo_chat(
+    request: ChatRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Direct chat interface with MultiLingo Agent.
+    
+    This endpoint allows you to chat with the agent directly via API
+    (not through Telex). Useful for testing and custom integrations.
+    
+    Example request:
+    {
+        "message": "Translate 'hello world' to Spanish",
+        "user_id": "user_123"
+    }
+    
+    Example response:
+    {
+        "message": "Translation complete! ...",
+        "intent": "translate",
+        "action_taken": "translated_to_spanish",
+        "data": {...},
+        "success": true
+    }
+    """
+    try:
+        from app.chat_handler import process_chat_message
+        
+        # Get context if user_id provided
+        context = request.context or {}
+        if request.user_id:
+            history = get_telex_conversation_history(db, request.user_id, limit=5)
+            if history:
+                context["last_text"] = history[0].user_message
+        
+        # Process message
+        chat_response = process_chat_message(request.message, context)
+        
+        # Store if user_id provided
+        if request.user_id:
+            create_telex_conversation(
+                db=db,
+                telex_user_id=request.user_id,
+                user_message=request.message,
+                agent_response=chat_response["message"],
+                detected_intent=chat_response["intent"],
+                action_taken=chat_response["action_taken"],
+                context_data=context,
+                success=chat_response["success"]
+            )
+        
+        return ChatResponse(
+            message=chat_response["message"],
+            intent=chat_response["intent"],
+            action_taken=chat_response["action_taken"],
+            data=chat_response.get("data"),
+            success=chat_response["success"]
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Chat processing failed: {str(e)}"
+        )
