@@ -8,7 +8,7 @@ Run this once to set up your database:
 """
 
 from app.database import engine, Base
-from app.models import StringModel  # Import required to register model with Base.metadata
+from app.models import StringModel, TranslationModel, TelexConversationModel, AgentAnalyticsModel
 
 def create_tables():
     """
@@ -44,7 +44,7 @@ def create_tables():
         print("  - is_palindrome (BOOLEAN)")
         print("  - unique_characters (INTEGER)")
         print("  - word_count (INTEGER)")
-    # sha256_hash column removed; id stores the SHA-256 hash
+        print("  - sha256_hash (TEXT)")
         print("  - character_frequency_map (JSON)")
         print("  - created_at (TIMESTAMP)")
         

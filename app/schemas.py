@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 """
@@ -406,5 +406,303 @@ class ValidationErrorResponse(BaseModel):
                         "type": "value_error.missing"
                     }
                 ]
+            }
+        }
+
+
+# ============================================================================
+# TRANSLATION SCHEMAS (New for MultiLingo Agent)
+# ============================================================================
+
+class TranslationRequest(BaseModel):
+    """
+    Schema for translation requests.
+    
+    Used by: POST /translate
+    """
+    text: str = Field(
+        ...,
+        min_length=1,
+        description="Text to translate",
+        examples=["hello world", "bonjour"]
+    )
+    target_language: str = Field(
+        ...,
+        min_length=2,
+        max_length=10,
+        description="Target language code or name (e.g., 'es', 'spanish')",
+        examples=["es", "spanish", "fr", "french"]
+    )
+    source_language: Optional[str] = Field(
+        None,
+        description="Source language (optional, auto-detect if not provided)",
+        examples=["en", "auto"]
+    )
+    analyze: bool = Field(
+        default=True,
+        description="Whether to include string analysis in response"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                {
+                    "text": "hello world",
+                    "target_language": "es",
+                    "analyze": True
+                },
+                {
+                    "text": "bonjour le monde",
+                    "target_language": "english",
+                    "source_language": "french"
+                }
+            ]
+        }
+
+
+class MultiTranslationRequest(BaseModel):
+    """
+    Schema for multi-language translation requests.
+    
+    Used by: POST /translate/multiple
+    """
+    text: str = Field(
+        ...,
+        min_length=1,
+        description="Text to translate"
+    )
+    target_languages: List[str] = Field(
+        ...,
+        min_length=1,
+        description="List of target language codes",
+        examples=[["es", "fr", "de"], ["spanish", "french", "german"]]
+    )
+    source_language: Optional[str] = Field(
+        None,
+        description="Source language (optional)"
+    )
+    analyze: bool = Field(
+        default=True,
+        description="Whether to include string analysis"
+    )
+
+
+class TranslationResponse(BaseModel):
+    """
+    Schema for translation responses.
+    
+    Returns translation with analysis and metadata.
+    """
+    id: str = Field(..., description="Unique translation ID")
+    
+    original: Dict[str, Any] = Field(
+        ...,
+        description="Original text information"
+    )
+    """
+    {
+        "text": "hello world",
+        "language": "en",
+        "language_name": "english",
+        "properties": {...}  # String analysis if requested
+    }
+    """
+    
+    translation: Dict[str, Any] = Field(
+        ...,
+        description="Translation information"
+    )
+    """
+    {
+        "text": "hola mundo",
+        "target_language": "es"
+    }
+    """
+    
+    metadata: Dict[str, Any] = Field(
+        ...,
+        description="Translation metadata"
+    )
+    """
+    {
+        "service": "googletrans",
+        "source": "api"
+    }
+    """
+    
+    created_at: datetime = Field(
+        ...,
+        description="When translation was performed"
+    )
+    
+    class Config:
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "id": "abc123_es",
+                "original": {
+                    "text": "hello world",
+                    "language": "en",
+                    "language_name": "english",
+                    "properties": {
+                        "length": 11,
+                        "word_count": 2,
+                        "is_palindrome": False
+                    }
+                },
+                "translation": {
+                    "text": "hola mundo",
+                    "target_language": "es"
+                },
+                "metadata": {
+                    "service": "googletrans",
+                    "source": "api"
+                },
+                "created_at": "2025-11-01T10:00:00Z"
+            }
+        }
+
+
+class MultiTranslationResponse(BaseModel):
+    """
+    Schema for multi-language translation responses.
+    """
+    original: Dict[str, Any] = Field(..., description="Original text info")
+    translations: Dict[str, str] = Field(..., description="Translations by language")
+    metadata: Dict[str, Any] = Field(..., description="Metadata")
+    created_at: datetime = Field(..., description="Timestamp")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "original": {
+                    "text": "hello",
+                    "language": "en",
+                    "properties": {"length": 5, "word_count": 1}
+                },
+                "translations": {
+                    "es": "hola",
+                    "fr": "bonjour",
+                    "de": "hallo"
+                },
+                "metadata": {"service": "googletrans"},
+                "created_at": "2025-11-01T10:00:00Z"
+            }
+        }
+
+
+# ============================================================================
+# TELEX INTEGRATION SCHEMAS
+# ============================================================================
+
+class TelexWebhookPayload(BaseModel):
+    """
+    Schema for incoming Telex webhook payloads.
+    
+    This is what Telex.im sends to our webhook endpoint.
+    """
+    user_id: str = Field(..., description="Telex user identifier")
+    message: str = Field(..., description="User's message text")
+    conversation_id: Optional[str] = Field(None, description="Conversation thread ID")
+    message_id: Optional[str] = Field(None, description="Specific message ID")
+    timestamp: Optional[datetime] = Field(None, description="Message timestamp")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": "user_12345",
+                "message": "Translate 'hello world' to Spanish",
+                "conversation_id": "conv_67890",
+                "message_id": "msg_11111",
+                "timestamp": "2025-11-01T10:00:00Z"
+            }
+        }
+
+
+class TelexResponse(BaseModel):
+    """
+    Schema for responses sent back to Telex.im.
+    
+    This is what we send back to Telex after processing.
+    """
+    message: str = Field(..., description="Agent's response message")
+    success: bool = Field(default=True, description="Whether processing succeeded")
+    data: Optional[Dict[str, Any]] = Field(None, description="Additional data")
+    error: Optional[str] = Field(None, description="Error message if failed")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "message": "Translation complete!\n\nOriginal: hello world\nSpanish: hola mundo",
+                "success": True,
+                "data": {
+                    "translation_id": "abc123_es",
+                    "detected_language": "english"
+                }
+            }
+        }
+
+
+class ChatRequest(BaseModel):
+    """
+    Schema for direct chat API requests.
+    
+    Used by: POST /agents/multilingo/chat
+    """
+    message: str = Field(
+        ...,
+        min_length=1,
+        description="User's message in natural language"
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="User identifier for context tracking"
+    )
+    context: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Previous conversation context"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                {
+                    "message": "Translate 'hello' to Spanish"
+                },
+                {
+                    "message": "What does 'bonjour' mean?",
+                    "user_id": "user_123"
+                },
+                {
+                    "message": "Translate this to French and German",
+                    "context": {"last_text": "hello world"}
+                }
+            ]
+        }
+
+
+class ChatResponse(BaseModel):
+    """
+    Schema for chat API responses.
+    """
+    message: str = Field(..., description="Agent's natural language response")
+    intent: str = Field(..., description="Detected user intent")
+    action_taken: Optional[str] = Field(None, description="Action performed")
+    data: Optional[Dict[str, Any]] = Field(None, description="Structured data")
+    success: bool = Field(default=True, description="Whether request succeeded")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "message": "I've translated 'hello' to Spanish for you: 'hola'",
+                "intent": "translate",
+                "action_taken": "translated_to_spanish",
+                "data": {
+                    "original": "hello",
+                    "translation": "hola",
+                    "language": "es"
+                },
+                "success": True
             }
         }

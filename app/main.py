@@ -11,22 +11,37 @@ from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime
 
-from app.database import get_db, engine
+from app.database import get_db
 from app.schemas import (
     StringCreate,
     StringResponse,
     StringListResponse,
     NaturalLanguageResponse,
-    ErrorResponse
+    ErrorResponse,
+    TranslationRequest,
+    MultiTranslationRequest,
+    TranslationResponse,
+    MultiTranslationResponse,
+    TelexWebhookPayload,
+    TelexResponse,
+    ChatRequest,
+    ChatResponse
 )
 from app.crud import (
     create_string,
     get_string_by_value,
     get_all_strings,
     delete_string,
-    string_exists
+    string_exists,
+    create_translation,
+    get_translation,
+    get_translation_by_id,
+    get_all_translations,
+    create_telex_conversation,
+    get_telex_conversation_history
 )
 
 # ============================================================================
@@ -52,22 +67,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def startup_event():
-    """
-    Startup event to validate database connection.
-    This will fail fast if the database is not accessible.
-    """
-    try:
-        from sqlalchemy import text
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        print("✅ Database connection validated successfully")
-    except Exception as e:
-        print(f"❌ Database connection failed: {e}")
-        raise
 
 """
 CORS (Cross-Origin Resource Sharing):
@@ -143,7 +142,7 @@ def create_and_analyze_string(
                 "is_palindrome": db_string.is_palindrome,
                 "unique_characters": db_string.unique_characters,
                 "word_count": db_string.word_count,
-                "sha256_hash": db_string.id,
+                "sha256_hash": db_string.sha256_hash,
                 "character_frequency_map": db_string.character_frequency_map
             },
             created_at=db_string.created_at
@@ -159,7 +158,169 @@ def create_and_analyze_string(
 
 
 # ============================================================================
-# ENDPOINT 2: NATURAL LANGUAGE FILTERING (MUST COME BEFORE VARIABLE ROUTES!)
+# ENDPOINT 2: GET SPECIFIC STRING
+# ============================================================================
+
+@app.get(
+    "/strings/{string_value}",
+    response_model=StringResponse,
+    responses={
+        200: {"description": "String found"},
+        404: {"model": ErrorResponse, "description": "String not found"}
+    }
+)
+def get_specific_string(
+    string_value: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve a specific string by its exact value.
+    
+    The string_value in the URL is matched exactly (case-sensitive).
+    
+    Args:
+        string_value: The exact string to retrieve (from URL path)
+        db: Database session (injected by FastAPI)
+    
+    Returns:
+        StringResponse with all properties
+    
+    Raises:
+        404 Not Found: If string doesn't exist
+    
+    Example:
+        GET /strings/hello%20world
+        (URL encoding: space becomes %20)
+    """
+    # Query database
+    db_string = get_string_by_value(db, string_value)
+    
+    # If not found, return 404
+    if db_string is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="String does not exist in the system"
+        )
+    
+    # Convert to response schema
+    return StringResponse(
+        id=db_string.id,
+        value=db_string.value,
+        properties={
+            "length": db_string.length,
+            "is_palindrome": db_string.is_palindrome,
+            "unique_characters": db_string.unique_characters,
+            "word_count": db_string.word_count,
+            "sha256_hash": db_string.sha256_hash,
+            "character_frequency_map": db_string.character_frequency_map
+        },
+        created_at=db_string.created_at
+    )
+
+
+# ============================================================================
+# ENDPOINT 3: GET ALL STRINGS WITH FILTERING
+# ============================================================================
+
+@app.get(
+    "/strings",
+    response_model=StringListResponse,
+    responses={
+        200: {"description": "List of strings"},
+        400: {"model": ErrorResponse, "description": "Invalid query parameters"}
+    }
+)
+def list_strings(
+    is_palindrome: Optional[bool] = Query(None, description="Filter by palindrome status"),
+    min_length: Optional[int] = Query(None, ge=0, description="Minimum string length (inclusive)"),
+    max_length: Optional[int] = Query(None, ge=0, description="Maximum string length (inclusive)"),
+    word_count: Optional[int] = Query(None, ge=0, description="Exact word count"),
+    contains_character: Optional[str] = Query(None, min_length=1, max_length=1, description="Single character to search for"),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve all strings with optional filtering.
+    
+    All query parameters are optional. If not provided, no filter is applied.
+    Multiple filters are combined with AND logic.
+    
+    Args:
+        is_palindrome: Filter by palindrome status (optional)
+        min_length: Minimum string length (optional)
+        max_length: Maximum string length (optional)
+        word_count: Exact word count (optional)
+        contains_character: Single character that must be present (optional)
+        db: Database session (injected by FastAPI)
+    
+    Returns:
+        StringListResponse with array of matching strings and metadata
+    
+    Examples:
+        GET /strings
+        GET /strings?is_palindrome=true
+        GET /strings?min_length=5&max_length=20
+        GET /strings?is_palindrome=true&word_count=1
+    """
+    # Validate max_length >= min_length
+    if min_length is not None and max_length is not None:
+        if max_length < min_length:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="max_length must be greater than or equal to min_length"
+            )
+    
+    # Query database with filters
+    db_strings = get_all_strings(
+        db,
+        is_palindrome=is_palindrome,
+        min_length=min_length,
+        max_length=max_length,
+        word_count=word_count,
+        contains_character=contains_character
+    )
+    
+    # Convert database models to response schemas
+    string_responses = []
+    for db_string in db_strings:
+        string_responses.append(
+            StringResponse(
+                id=db_string.id,
+                value=db_string.value,
+                properties={
+                    "length": db_string.length,
+                    "is_palindrome": db_string.is_palindrome,
+                    "unique_characters": db_string.unique_characters,
+                    "word_count": db_string.word_count,
+                    "sha256_hash": db_string.sha256_hash,
+                    "character_frequency_map": db_string.character_frequency_map
+                },
+                created_at=db_string.created_at
+            )
+        )
+    
+    # Build filters_applied dict (only include non-None values)
+    filters_applied = {}
+    if is_palindrome is not None:
+        filters_applied["is_palindrome"] = is_palindrome
+    if min_length is not None:
+        filters_applied["min_length"] = min_length
+    if max_length is not None:
+        filters_applied["max_length"] = max_length
+    if word_count is not None:
+        filters_applied["word_count"] = word_count
+    if contains_character is not None:
+        filters_applied["contains_character"] = contains_character
+    
+    # Return list response
+    return StringListResponse(
+        data=string_responses,
+        count=len(string_responses),
+        filters_applied=filters_applied if filters_applied else None
+    )
+
+
+# ============================================================================
+# ENDPOINT 4: NATURAL LANGUAGE FILTERING
 # ============================================================================
 
 @app.get(
@@ -234,7 +395,7 @@ def filter_by_natural_language(
                         "is_palindrome": db_string.is_palindrome,
                         "unique_characters": db_string.unique_characters,
                         "word_count": db_string.word_count,
-                        "sha256_hash": db_string.id,
+                        "sha256_hash": db_string.sha256_hash,
                         "character_frequency_map": db_string.character_frequency_map
                     },
                     created_at=db_string.created_at
@@ -257,168 +418,6 @@ def filter_by_natural_language(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unable to parse natural language query: {str(e)}"
         )
-
-
-# ============================================================================
-# ENDPOINT 3: GET SPECIFIC STRING
-# ============================================================================
-
-@app.get(
-    "/strings/{string_value}",
-    response_model=StringResponse,
-    responses={
-        200: {"description": "String found"},
-        404: {"model": ErrorResponse, "description": "String not found"}
-    }
-)
-def get_specific_string(
-    string_value: str,
-    db: Session = Depends(get_db)
-):
-    """
-    Retrieve a specific string by its exact value.
-    
-    The string_value in the URL is matched exactly (case-sensitive).
-    
-    Args:
-        string_value: The exact string to retrieve (from URL path)
-        db: Database session (injected by FastAPI)
-    
-    Returns:
-        StringResponse with all properties
-    
-    Raises:
-        404 Not Found: If string doesn't exist
-    
-    Example:
-        GET /strings/hello%20world
-        (URL encoding: space becomes %20)
-    """
-    # Query database
-    db_string = get_string_by_value(db, string_value)
-    
-    # If not found, return 404
-    if db_string is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="String does not exist in the system"
-        )
-    
-    # Convert to response schema
-    return StringResponse(
-        id=db_string.id,
-        value=db_string.value,
-        properties={
-            "length": db_string.length,
-            "is_palindrome": db_string.is_palindrome,
-            "unique_characters": db_string.unique_characters,
-            "word_count": db_string.word_count,
-            "sha256_hash": db_string.id,
-            "character_frequency_map": db_string.character_frequency_map
-        },
-        created_at=db_string.created_at
-    )
-
-
-# ============================================================================
-# ENDPOINT 4: GET ALL STRINGS WITH FILTERING
-# ============================================================================
-
-@app.get(
-    "/strings",
-    response_model=StringListResponse,
-    responses={
-        200: {"description": "List of strings"},
-        400: {"model": ErrorResponse, "description": "Invalid query parameters"}
-    }
-)
-def list_strings(
-    is_palindrome: Optional[bool] = Query(None, description="Filter by palindrome status"),
-    min_length: Optional[int] = Query(None, ge=0, description="Minimum string length (inclusive)"),
-    max_length: Optional[int] = Query(None, ge=0, description="Maximum string length (inclusive)"),
-    word_count: Optional[int] = Query(None, ge=0, description="Exact word count"),
-    contains_character: Optional[str] = Query(None, min_length=1, max_length=1, description="Single character to search for"),
-    db: Session = Depends(get_db)
-):
-    """
-    Retrieve all strings with optional filtering.
-    
-    All query parameters are optional. If not provided, no filter is applied.
-    Multiple filters are combined with AND logic.
-    
-    Args:
-        is_palindrome: Filter by palindrome status (optional)
-        min_length: Minimum string length (optional)
-        max_length: Maximum string length (optional)
-        word_count: Exact word count (optional)
-        contains_character: Single character that must be present (optional)
-        db: Database session (injected by FastAPI)
-    
-    Returns:
-        StringListResponse with array of matching strings and metadata
-    
-    Examples:
-        GET /strings
-        GET /strings?is_palindrome=true
-        GET /strings?min_length=5&max_length=20
-        GET /strings?is_palindrome=true&word_count=1
-    """
-    # Validate max_length >= min_length
-    if min_length is not None and max_length is not None:
-        if max_length < min_length:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="max_length must be greater than or equal to min_length"
-            )
-    
-    # Query database with filters
-    db_strings = get_all_strings(
-        db,
-        is_palindrome=is_palindrome,
-        min_length=min_length,
-        max_length=max_length,
-        word_count=word_count,
-        contains_character=contains_character
-    )
-    
-    # Convert database models to response schemas
-    string_responses = []
-    for db_string in db_strings:
-        string_responses.append(
-            StringResponse(
-                id=db_string.id,
-                value=db_string.value,
-                properties={
-                    "length": db_string.length,
-                    "is_palindrome": db_string.is_palindrome,
-                    "unique_characters": db_string.unique_characters,
-                    "word_count": db_string.word_count,
-                    "sha256_hash": db_string.id,
-                    "character_frequency_map": db_string.character_frequency_map
-                },
-                created_at=db_string.created_at
-            )
-        )
-    
-    # Build filters_applied dict (only include non-None values)
-    filters_applied = {}
-    if is_palindrome is not None:
-        filters_applied["is_palindrome"] = is_palindrome
-    if min_length is not None:
-        filters_applied["min_length"] = min_length
-    if max_length is not None:
-        filters_applied["max_length"] = max_length
-    if word_count is not None:
-        filters_applied["word_count"] = word_count
-    if contains_character is not None:
-        filters_applied["contains_character"] = contains_character
-    
-    # Return list response
-    return StringListResponse(
-        data=string_responses,
-        count=len(string_responses),
-        filters_applied=filters_applied if filters_applied else None
-    )
 
 
 # ============================================================================
@@ -479,15 +478,32 @@ def root():
     Returns basic API information and links to documentation.
     """
     return {
-        "message": "Welcome to String Analyzer API",
-        "version": "1.0.0",
+        "message": "Welcome to String Analyzer API with MultiLingo Agent",
+        "version": "2.0.0",
         "documentation": "/docs",
+        "features": {
+            "string_analysis": "Analyze string properties (length, palindrome, etc.)",
+            "translation": "AI-powered translation to 25+ languages",
+            "telex_integration": "Chat with MultiLingo Agent on Telex.im"
+        },
         "endpoints": {
-            "create_string": "POST /strings",
-            "get_string": "GET /strings/{string_value}",
-            "list_strings": "GET /strings",
-            "natural_language_filter": "GET /strings/filter-by-natural-language",
-            "delete_string": "DELETE /strings/{string_value}"
+            "string_analysis": {
+                "create_string": "POST /strings",
+                "get_string": "GET /strings/{string_value}",
+                "list_strings": "GET /strings",
+                "natural_language_filter": "GET /strings/filter-by-natural-language",
+                "delete_string": "DELETE /strings/{string_value}"
+            },
+            "translation": {
+                "translate": "POST /translate",
+                "translate_multiple": "POST /translate/multiple",
+                "get_translations": "GET /translations",
+                "get_translation": "GET /translations/{translation_id}"
+            },
+            "agent": {
+                "telex_webhook": "POST /webhook/telex",
+                "chat": "POST /agents/multilingo/chat"
+            }
         }
     }
 
@@ -518,3 +534,268 @@ def health_check(db: Session = Depends(get_db)):
             "database": "disconnected",
             "error": str(e)
         }
+
+
+# ============================================================================
+# TRANSLATION ENDPOINTS (MultiLingo Agent)
+# ============================================================================
+
+@app.post(
+    "/translate",
+    response_model=TranslationResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Translation"],
+    responses={
+        201: {"description": "Translation completed successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid request"},
+        422: {"description": "Validation error"}
+    }
+)
+def translate_text_endpoint(
+    request: TranslationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Translate text to a target language.
+    
+    This endpoint:
+    1. Detects source language (if not provided)
+    2. Translates to target language
+    3. Optionally analyzes string properties
+    4. Stores translation in database
+    5. Returns comprehensive response
+    
+    Example request:
+        POST /translate
+        {
+            "text": "hello world",
+            "target_language": "es",
+            "analyze": true
+        }
+    """
+    try:
+        from app.translator import translate_text
+        from app.analyzer import analyze_string
+        
+        # Check if we already have this translation cached
+        existing = get_translation(db, request.text, request.target_language)
+        if existing:
+            return TranslationResponse(
+                id=existing.id,
+                original=existing.to_dict()["original"],
+                translation=existing.to_dict()["translation"],
+                metadata=existing.to_dict()["metadata"],
+                created_at=existing.created_at
+            )
+        
+        # Perform translation
+        translation_result = translate_text(
+            request.text,
+            request.target_language,
+            request.source_language
+        )
+        
+        # Analyze original text if requested
+        original_properties = None
+        if request.analyze:
+            original_properties = analyze_string(request.text)
+        
+        # Store in database
+        db_translation = create_translation(
+            db=db,
+            original_text=request.text,
+            translated_text=translation_result["translated_text"],
+            source_language=translation_result["source_language"],
+            target_language=translation_result["target_language"],
+            detected_language_name=translation_result["detected_language"],
+            original_properties=original_properties,
+            request_source="api"
+        )
+        
+        # Build response
+        return TranslationResponse(
+            id=db_translation.id,
+            original={
+                "text": db_translation.original_text,
+                "language": db_translation.detected_language,
+                "language_name": db_translation.detected_language_name,
+                "properties": db_translation.original_properties
+            },
+            translation={
+                "text": db_translation.translated_text,
+                "target_language": db_translation.target_language
+            },
+            metadata={
+                "service": db_translation.translation_service,
+                "source": db_translation.request_source
+            },
+            created_at=db_translation.created_at
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Translation failed: {str(e)}"
+        )
+
+
+@app.post(
+    "/translate/multiple",
+    response_model=MultiTranslationResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Translation"],
+    responses={
+        201: {"description": "Translations completed"},
+        400: {"model": ErrorResponse, "description": "Invalid request"}
+    }
+)
+def translate_multiple_languages(
+    request: MultiTranslationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Translate text to multiple target languages at once.
+    
+    Example request:
+        POST /translate/multiple
+        {
+            "text": "hello",
+            "target_languages": ["es", "fr", "de"],
+            "analyze": true
+        }
+    """
+    try:
+        from app.translator import translate_to_multiple
+        from app.analyzer import analyze_string
+        
+        # Perform translations
+        translation_results = translate_to_multiple(
+            request.text,
+            request.target_languages,
+            request.source_language
+        )
+        
+        # Analyze original text if requested
+        original_properties = None
+        if request.analyze:
+            original_properties = analyze_string(request.text)
+        
+        # Store each translation in database
+        for lang, translated_text in translation_results["translations"].items():
+            if not translated_text.startswith("[Translation failed"):
+                try:
+                    create_translation(
+                        db=db,
+                        original_text=request.text,
+                        translated_text=translated_text,
+                        source_language=translation_results["source_language"],
+                        target_language=lang,
+                        detected_language_name=translation_results.get("source_language", "unknown"),
+                        original_properties=original_properties,
+                        request_source="api"
+                    )
+                except:
+                    pass  # Skip if already exists
+        
+        # Build response
+        return MultiTranslationResponse(
+            original={
+                "text": request.text,
+                "language": translation_results["source_language"],
+                "properties": original_properties
+            },
+            translations=translation_results["translations"],
+            metadata={
+                "service": "deep-translator",
+                "source": "api"
+            },
+            created_at=datetime.now()
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@app.get(
+    "/translations",
+    response_model=List[TranslationResponse],
+    tags=["Translation"],
+    responses={
+        200: {"description": "Translation history retrieved"}
+    }
+)
+def get_translations_history(
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    source_language: Optional[str] = Query(None, description="Filter by source language"),
+    target_language: Optional[str] = Query(None, description="Filter by target language"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of results"),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve translation history with optional filtering.
+    
+    Example:
+        GET /translations?target_language=es&limit=50
+    """
+    translations = get_all_translations(
+        db=db,
+        user_id=user_id,
+        source_language=source_language,
+        target_language=target_language,
+        limit=limit
+    )
+    
+    return [
+        TranslationResponse(
+            id=t.id,
+            original=t.to_dict()["original"],
+            translation=t.to_dict()["translation"],
+            metadata=t.to_dict()["metadata"],
+            created_at=t.created_at
+        )
+        for t in translations
+    ]
+
+
+@app.get(
+    "/translations/{translation_id}",
+    response_model=TranslationResponse,
+    tags=["Translation"],
+    responses={
+        200: {"description": "Translation found"},
+        404: {"model": ErrorResponse, "description": "Translation not found"}
+    }
+)
+def get_translation_endpoint(
+    translation_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve a specific translation by ID.
+    
+    Example:
+        GET /translations/abc123def456_es
+    """
+    translation = get_translation_by_id(db, translation_id)
+    
+    if not translation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Translation not found"
+        )
+    
+    return TranslationResponse(
+        id=translation.id,
+        original=translation.to_dict()["original"],
+        translation=translation.to_dict()["translation"],
+        metadata=translation.to_dict()["metadata"],
+        created_at=translation.created_at
+    )
