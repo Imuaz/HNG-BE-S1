@@ -6,14 +6,12 @@ RESTful API for analyzing and storing strings with their computed properties.
 Run with: uvicorn app.main:app --reload
 """
 
-from fastapi import FastAPI, Depends, HTTPException, status, Query, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import Optional, List
-from datetime import datetime
-from typing import Any, Dict
+from typing import Optional, Dict
 
 from app.database import get_db
 from app.schemas import (
@@ -29,9 +27,7 @@ from app.schemas import (
     TelexWebhookPayload,
     TelexResponse,
     ChatRequest,
-    ChatResponse,
-    AgentCard,
-    AgentSkill
+    ChatResponse
 )
 from app.crud import (
     create_string,
@@ -58,22 +54,6 @@ app = FastAPI(
     docs_url="/docs",  # Swagger UI at /docs
     redoc_url="/redoc"  # ReDoc at /redoc
 )
-# ============================================================================
-# AUTH HELPERS (Telex API Key)
-# ============================================================================
-
-def verify_telex_api_key(request: Request) -> None:
-    """
-    If TELEX_API_KEY is set in the environment, require matching X-API-Key header.
-    """
-    import os
-    expected_key = os.getenv("TELEX_API_KEY")
-    if not expected_key:
-        return None
-    provided_key = request.headers.get("x-api-key") or request.headers.get("X-API-Key")
-    if provided_key != expected_key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
 
 # ============================================================================
 # CORS MIDDLEWARE (Allow cross-origin requests)
@@ -556,284 +536,6 @@ def health_check(db: Session = Depends(get_db)):
 
 
 # ============================================================================
-# AGENT CARD ENDPOINT (Telex Agent Discovery)
-# ============================================================================
-
-@app.get(
-    "/.well-known/agent-card",
-    response_model=AgentCard,
-    tags=["Agent Discovery"],
-    responses={
-        200: {"description": "Agent card retrieved successfully"}
-    }
-)
-def get_agent_card():
-    """
-    Agent Card endpoint for Telex.im discovery.
-    
-    This endpoint provides metadata about the MultiLingo Agent,
-    including its capabilities, supported languages, and webhook URL.
-    
-    Telex.im uses this to discover and register agents.
-    
-    Standard location: /.well-known/agent-card
-    """
-    import os
-    from app.translator import get_supported_languages
-    
-    # Get base URL from environment or use default
-    base_url = os.getenv("BASE_URL", "https://your-app-domain.com")
-    webhook_url = f"{base_url}/webhook/telex"
-    
-    # Get supported languages
-    supported_langs = get_supported_languages()
-    lang_codes = list(supported_langs.values())[:10]  # Top 10 for brevity
-    
-    return AgentCard(
-        name="MultiLingo Agent",
-        description="AI-powered translation and string analysis agent supporting 25+ languages with natural language understanding",
-        version="2.0.0",
-        author="HNG Backend Team",
-        homepage="https://github.com/yourusername/multilingo-agent",
-        webhook_url=webhook_url,
-        skills=[
-            AgentSkill(
-                name="Translation",
-                description="Translate text between 25+ languages including Spanish, French, German, Italian, Portuguese, Chinese, Japanese, Arabic, and more",
-                examples=[
-                    "Translate 'hello world' to Spanish",
-                    "How do you say 'thank you' in French?",
-                    "What is 'bonjour' in English?",
-                    "Translate 'good morning' to German and Italian"
-                ]
-            ),
-            AgentSkill(
-                name="Language Detection",
-                description="Automatically detect the language of any text with high accuracy",
-                examples=[
-                    "What language is 'hola mundo'?",
-                    "Detect language of 'bonjour'",
-                    "Identify this: 'ciao bella'"
-                ]
-            ),
-            AgentSkill(
-                name="String Analysis",
-                description="Analyze text properties including length, word count, palindrome detection, character frequency, and more",
-                examples=[
-                    "Analyze 'hello world'",
-                    "Is 'racecar' a palindrome?",
-                    "Check the properties of 'level'"
-                ]
-            ),
-            AgentSkill(
-                name="Multi-Language Translation",
-                description="Translate text to multiple languages simultaneously",
-                examples=[
-                    "Translate 'hello' to Spanish, French, and German",
-                    "Say 'goodbye' in 5 different languages"
-                ]
-            )
-        ],
-        supported_languages=lang_codes,
-        tags=[
-            "translation",
-            "language",
-            "multilingual",
-            "nlp",
-            "analysis",
-            "string-processing",
-            "ai-agent",
-            "language-detection"
-        ],
-        icon_url="https://api.dicebear.com/7.x/bottts/svg?seed=multilingo",
-        metadata={
-            "max_text_length": 5000,
-            "response_time": "fast",
-            "total_languages": len(supported_langs),
-            "features": [
-                "Natural language understanding",
-                "Context-aware responses",
-                "Multi-turn conversations",
-                "Automatic language detection",
-                "String property analysis",
-                "Batch translations"
-            ],
-            "api_version": "v1",
-            "last_updated": "2025-11-03"
-        }
-    )
-
-
-# ============================================================================
-# TELEX AGENT JSON (A2A Discovery per docs)
-# ============================================================================
-
-@app.get(
-    "/.well-known/agent.json",
-    tags=["Agent Discovery"],
-    responses={
-        200: {"description": "Telex Agent JSON retrieved successfully"}
-    }
-)
-def get_telex_agent_json():
-    """
-    Telex-compliant Agent JSON served at /.well-known/agent.json
-    including agent skills as described in the docs.
-    """
-    import os
-    base_url = os.getenv("BASE_URL", "https://your-app-domain.com")
-    provider_name = os.getenv("PROVIDER_NAME", "HNG Backend Team")
-    provider_url = os.getenv("PROVIDER_URL", "https://github.com/yourusername/multilingo-agent")
-
-    # Define skills in Telex format
-    skills = [
-        {
-            "id": "translation",
-            "name": "Translation",
-            "description": "Translate text between many languages",
-            "inputModes": ["text/plain", "application/json"],
-            "outputModes": ["application/json", "text/plain"],
-            "examples": [
-                "Translate 'hello world' to Spanish",
-                "How do you say 'thank you' in French?"
-            ]
-        },
-        {
-            "id": "language-detection",
-            "name": "Language Detection",
-            "description": "Automatically detect the language of input text",
-            "inputModes": ["text/plain"],
-            "outputModes": ["application/json", "text/plain"],
-            "examples": [
-                "What language is 'hola mundo'?",
-                "Detect language of 'bonjour'"
-            ]
-        },
-        {
-            "id": "string-analysis",
-            "name": "String Analysis",
-            "description": "Analyze text properties like length, word count, palindrome detection",
-            "inputModes": ["text/plain"],
-            "outputModes": ["application/json"],
-            "examples": [
-                "Analyze 'racecar'",
-                "Check properties of 'level'"
-            ]
-        },
-        {
-            "id": "multi-language-translation",
-            "name": "Multi-Language Translation",
-            "description": "Translate text to multiple languages simultaneously",
-            "inputModes": ["application/json", "text/plain"],
-            "outputModes": ["application/json"],
-            "examples": [
-                "Translate 'hello' to Spanish, French, and German"
-            ]
-        }
-    ]
-
-    agent_json = {
-        "name": "MultiLingo Agent",
-        "description": "AI-powered translation and string analysis agent with NLU",
-        "url": base_url,
-        "provider": {
-            "name": provider_name,
-            "url": provider_url
-        },
-        "version": "2.0.0",
-        "documentationUrl": provider_url,
-        "capabilities": {
-            "streaming": False,
-            "pushNotifications": False,
-            "stateTransitionHistory": True
-        },
-        "defaultInputModes": ["text/plain", "application/json"],
-        "defaultOutputModes": ["application/json", "text/plain"],
-        "skills": skills,
-        "supportsAuthenticatedExtendedCard": False
-    }
-
-    return agent_json
-
-
-# ============================================================================
-# JSON-RPC 2.0 ROOT ENDPOINT (Telex A2A Communication)
-# ============================================================================
-
-@app.post(
-    "/",
-    tags=["Telex Integration"],
-    responses={
-        200: {"description": "JSON-RPC processed"},
-        400: {"description": "Invalid request"},
-        401: {"description": "Unauthorized"}
-    }
-)
-def jsonrpc_root(
-    payload: Dict[str, Any],
-    db: Session = Depends(get_db),
-    _: None = Depends(verify_telex_api_key)
-):
-    """
-    Minimal JSON-RPC 2.0 endpoint expected by Telex for A2A.
-    Supported methods:
-      - translation.translate (params: {text, target_language, source_language?})
-      - translation.multiple (params: {text, target_languages: []})
-      - language.detect (params: {text})
-      - string.analyze (params: {text})
-    """
-    try:
-        jsonrpc = payload.get("jsonrpc")
-        method = payload.get("method")
-        params = payload.get("params") or {}
-        req_id = payload.get("id")
-
-        if jsonrpc != "2.0" or not method:
-            return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32600, "message": "Invalid Request"}}
-
-        # Import here to avoid circulars on startup
-        from app.translator import translate_text, translate_to_multiple, detect_language
-        from app.analyzer import analyze_string
-
-        if method == "translation.translate":
-            text = params.get("text")
-            target_language = params.get("target_language")
-            source_language = params.get("source_language")
-            if not text or not target_language:
-                return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32602, "message": "Missing text or target_language"}}
-            result = translate_text(text, target_language, source_language)
-            return {"jsonrpc": "2.0", "id": req_id, "result": result}
-
-        if method == "translation.multiple":
-            text = params.get("text")
-            target_languages = params.get("target_languages") or params.get("targets")
-            if not text or not isinstance(target_languages, list) or not target_languages:
-                return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32602, "message": "Missing text or target_languages"}}
-            result = translate_to_multiple(text, target_languages, params.get("source_language"))
-            return {"jsonrpc": "2.0", "id": req_id, "result": result}
-
-        if method == "language.detect":
-            text = params.get("text")
-            if not text:
-                return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32602, "message": "Missing text"}}
-            code, name, confidence = detect_language(text)
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"language_code": code, "language_name": name, "confidence": confidence}}
-
-        if method == "string.analyze":
-            text = params.get("text")
-            if not text:
-                return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32602, "message": "Missing text"}}
-            analysis = analyze_string(text)
-            return {"jsonrpc": "2.0", "id": req_id, "result": analysis}
-
-        return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
-    except HTTPException:
-        raise
-    except Exception as e:
-        return {"jsonrpc": "2.0", "id": payload.get("id"), "error": {"code": -32603, "message": f"Internal error: {str(e)}"}}
-
-
-# ============================================================================
 # TRANSLATION ENDPOINTS (MultiLingo Agent)
 # ============================================================================
 
@@ -1113,8 +815,7 @@ def get_translation_endpoint(
 )
 def telex_webhook(
     payload: TelexWebhookPayload,
-    db: Session = Depends(get_db),
-    _: None = Depends(verify_telex_api_key)
+    db: Session = Depends(get_db)
 ):
     """
     Webhook endpoint for Telex.im integration.
@@ -1271,3 +972,107 @@ def multilingo_chat(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Chat processing failed: {str(e)}"
         )
+
+
+# ============================================================================
+# A2A PROTOCOL ENDPOINT (Mastra Format for Telex)
+# ============================================================================
+
+@app.post(
+    "/a2a/agent/multilingoAgent",
+    tags=["A2A Protocol"],
+    responses={
+        200: {"description": "A2A request processed successfully"}
+    }
+)
+async def a2a_multilingo_agent(request: Dict = None):
+    """
+    A2A Protocol endpoint for Mastra integration with Telex.
+    
+    This endpoint follows the Mastra A2A protocol format.
+    Telex will send requests here when users interact with the agent.
+    
+    Expected request format:
+    {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Translate 'hello' to Spanish"
+            }
+        ],
+        "context": {...}
+    }
+    """
+    try:
+        from app.chat_handler import process_chat_message
+        from app.database import SessionLocal
+        
+        # Extract message from A2A format
+        messages = request.get("messages", []) if request else []
+        user_message = ""
+        user_id = request.get("userId") or request.get("user_id") or "telex_user"
+        
+        # Get the last user message
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_message = msg.get("content", "")
+                break
+        
+        if not user_message:
+            return {
+                "role": "assistant",
+                "content": "I didn't receive a message. Please try again!"
+            }
+        
+        # Get database session
+        db = SessionLocal()
+        
+        try:
+            # Get conversation context
+            history = get_telex_conversation_history(db, user_id, limit=5)
+            context = {
+                "last_text": history[0].user_message if history else None,
+                "history": [h.user_message for h in history[:3]]
+            }
+            
+            # Process the message
+            chat_response = process_chat_message(user_message, context)
+            
+            # Store conversation
+            create_telex_conversation(
+                db=db,
+                telex_user_id=user_id,
+                user_message=user_message,
+                agent_response=chat_response["message"],
+                detected_intent=chat_response["intent"],
+                action_taken=chat_response["action_taken"],
+                context_data=context,
+                success=chat_response["success"]
+            )
+            
+            # Return in A2A format
+            return {
+                "role": "assistant",
+                "content": chat_response["message"],
+                "metadata": {
+                    "intent": chat_response["intent"],
+                    "action": chat_response["action_taken"],
+                    "success": chat_response["success"],
+                    "data": chat_response.get("data")
+                }
+            }
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "role": "assistant",
+            "content": "Sorry, I encountered an error processing your request. Please try again! 🔄",
+            "metadata": {
+                "error": str(e),
+                "success": False
+            }
+        }
