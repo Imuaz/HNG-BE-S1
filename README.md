@@ -1,6 +1,6 @@
 # String Analyzer API 🔤
 
-A RESTful API service that analyzes strings and stores their computed properties.
+A RESTful API service that analyzes strings and stores their computed properties, plus a Telex.im AI Work Colleague (Mastra A2A) integration.
 
 ## Features
 
@@ -9,7 +9,7 @@ A RESTful API service that analyzes strings and stores their computed properties
 - ✅ Filter strings by various properties
 - ✅ Natural language query support
 - ✅ Automatic API documentation (Swagger UI)
- - ✅ Telex.im Agent integration (Agent Card, JSON-RPC, Webhook)
+- ✅ Telex.im integration (Discovery card, Webhook, Mastra A2A endpoint)
 
 ## Tech Stack
 
@@ -30,7 +30,8 @@ A RESTful API service that analyzes strings and stores their computed properties
 | `DELETE /strings/{value}`                 | DELETE | Delete a string                        |
 | `GET /.well-known/agent.json`             | GET    | Telex agent card (discovery)           |
 | `GET /.well-known/agent-card`             | GET    | Human-friendly agent metadata          |
-| `POST /`                                  | POST   | JSON-RPC 2.0 (Telex A2A)               |
+| `GET /a2a/agent/multilingoAgent`          | GET    | A2A agent info (Mastra format)         |
+| `POST /a2a/agent/multilingoAgent`         | POST   | A2A chat endpoint (Telex/Mastra)       |
 | `POST /webhook/telex`                     | POST   | Telex webhook (messages)               |
 
 ## Documentation
@@ -121,14 +122,13 @@ This script validates:
 
 ## Environment Variables
 
-| Variable       | Description                  | Required               |
-| -------------- | ---------------------------- | ---------------------- |
-| `DATABASE_URL` | PostgreSQL connection string | Yes                    |
-| `PORT`         | Port to run the server on    | No (Railway sets this) |
-| `BASE_URL`     | Public base URL of the app   | Yes (for Telex)        |
-| `TELEX_API_KEY`| API key for Telex requests   | Recommended            |
-| `PROVIDER_NAME`| Agent provider name          | No                     |
-| `PROVIDER_URL` | Agent provider URL           | No                     |
+| Variable        | Description                  | Required               |
+| --------------- | ---------------------------- | ---------------------- |
+| `DATABASE_URL`  | PostgreSQL connection string | Yes                    |
+| `PORT`          | Port to run the server on    | No (Railway sets this) |
+| `BASE_URL`      | Public base URL of the app   | Yes (for discovery)    |
+| `PROVIDER_NAME` | Agent provider name          | No                     |
+| `PROVIDER_URL`  | Agent provider URL           | No                     |
 
 ## Railway Deployment
 
@@ -184,23 +184,23 @@ curl "https://your-app.up.railway.app/strings/filter-by-natural-language?query=a
 curl -s https://your-app.up.railway.app/.well-known/agent.json | jq
 ```
 
-### JSON-RPC (Telex A2A)
+### A2A (Mastra) - Chat
 
 ```bash
-curl -s -H "Content-Type: application/json" -H "X-API-Key: $TELEX_API_KEY" \
+curl -s -X POST https://your-app.up.railway.app/a2a/agent/multilingoAgent \
+  -H "Content-Type: application/json" \
   -d '{
-    "jsonrpc": "2.0",
-    "id": "1",
-    "method": "translation.translate",
-    "params": {"text": "hello world", "target_language": "es"}
-  }' \
-  https://your-app.up.railway.app/
+        "messages": [
+          {"role": "user", "content": "Translate hello to Spanish"}
+        ],
+        "userId": "test_user"
+      }'
 ```
 
 ### Telex Webhook
 
 ```bash
-curl -s -H "Content-Type: application/json" -H "X-API-Key: $TELEX_API_KEY" \
+curl -s -H "Content-Type: application/json" \
   -d '{"user_id":"u1","message":"Translate hello to Spanish"}' \
   https://your-app.up.railway.app/webhook/telex
 ```
