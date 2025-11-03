@@ -9,6 +9,7 @@ A RESTful API service that analyzes strings and stores their computed properties
 - ✅ Filter strings by various properties
 - ✅ Natural language query support
 - ✅ Automatic API documentation (Swagger UI)
+ - ✅ Telex.im Agent integration (Agent Card, JSON-RPC, Webhook)
 
 ## Tech Stack
 
@@ -27,6 +28,10 @@ A RESTful API service that analyzes strings and stores their computed properties
 | `GET /strings`                            | GET    | List all strings with optional filters |
 | `GET /strings/filter-by-natural-language` | GET    | Filter using natural language          |
 | `DELETE /strings/{value}`                 | DELETE | Delete a string                        |
+| `GET /.well-known/agent.json`             | GET    | Telex agent card (discovery)           |
+| `GET /.well-known/agent-card`             | GET    | Human-friendly agent metadata          |
+| `POST /`                                  | POST   | JSON-RPC 2.0 (Telex A2A)               |
+| `POST /webhook/telex`                     | POST   | Telex webhook (messages)               |
 
 ## Documentation
 
@@ -120,6 +125,10 @@ This script validates:
 | -------------- | ---------------------------- | ---------------------- |
 | `DATABASE_URL` | PostgreSQL connection string | Yes                    |
 | `PORT`         | Port to run the server on    | No (Railway sets this) |
+| `BASE_URL`     | Public base URL of the app   | Yes (for Telex)        |
+| `TELEX_API_KEY`| API key for Telex requests   | Recommended            |
+| `PROVIDER_NAME`| Agent provider name          | No                     |
+| `PROVIDER_URL` | Agent provider URL           | No                     |
 
 ## Railway Deployment
 
@@ -167,6 +176,33 @@ curl "https://your-app.up.railway.app/strings?is_palindrome=true"
 
 ```bash
 curl "https://your-app.up.railway.app/strings/filter-by-natural-language?query=all%20single%20word%20palindromes"
+```
+
+### Telex Agent Discovery
+
+```bash
+curl -s https://your-app.up.railway.app/.well-known/agent.json | jq
+```
+
+### JSON-RPC (Telex A2A)
+
+```bash
+curl -s -H "Content-Type: application/json" -H "X-API-Key: $TELEX_API_KEY" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "translation.translate",
+    "params": {"text": "hello world", "target_language": "es"}
+  }' \
+  https://your-app.up.railway.app/
+```
+
+### Telex Webhook
+
+```bash
+curl -s -H "Content-Type: application/json" -H "X-API-Key: $TELEX_API_KEY" \
+  -d '{"user_id":"u1","message":"Translate hello to Spanish"}' \
+  https://your-app.up.railway.app/webhook/telex
 ```
 
 ## License

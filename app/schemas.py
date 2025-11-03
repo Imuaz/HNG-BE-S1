@@ -706,3 +706,90 @@ class ChatResponse(BaseModel):
                 "success": True
             }
         }
+
+
+
+# ============================================================================
+# AGENT CARD SCHEMA (Telex Agent Discovery)
+# ============================================================================
+
+class AgentSkill(BaseModel):
+    """
+    Schema for individual agent skills/capabilities.
+    """
+    name: str = Field(..., description="Skill name")
+    description: str = Field(..., description="What this skill does")
+    examples: List[str] = Field(default_factory=list, description="Example commands")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "name": "Translation",
+                "description": "Translate text between 25+ languages",
+                "examples": [
+                    "Translate 'hello' to Spanish",
+                    "How do you say 'thank you' in French?"
+                ]
+            }
+        }
+
+
+class AgentCard(BaseModel):
+    """
+    Schema for Telex Agent Card.
+    
+    This provides metadata about the agent for Telex.im discovery.
+    Used by: GET /.well-known/agent-card
+    """
+    name: str = Field(..., description="Agent display name")
+    description: str = Field(..., description="Brief description of agent capabilities")
+    version: str = Field(..., description="Agent version")
+    author: Optional[str] = Field(None, description="Agent creator/maintainer")
+    homepage: Optional[str] = Field(None, description="Agent homepage URL")
+    webhook_url: str = Field(..., description="Webhook endpoint for Telex integration")
+    
+    skills: List[AgentSkill] = Field(
+        default_factory=list,
+        description="List of agent capabilities"
+    )
+    
+    supported_languages: Optional[List[str]] = Field(
+        None,
+        description="Languages supported by the agent"
+    )
+    
+    tags: List[str] = Field(
+        default_factory=list,
+        description="Tags for agent categorization"
+    )
+    
+    icon_url: Optional[str] = Field(None, description="Agent icon/avatar URL")
+    
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Additional agent metadata"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "name": "MultiLingo Agent",
+                "description": "AI-powered translation and string analysis agent supporting 25+ languages",
+                "version": "2.0.0",
+                "author": "HNG Backend Team",
+                "webhook_url": "https://your-app.com/webhook/telex",
+                "skills": [
+                    {
+                        "name": "Translation",
+                        "description": "Translate text between 25+ languages",
+                        "examples": ["Translate 'hello' to Spanish"]
+                    }
+                ],
+                "supported_languages": ["en", "es", "fr", "de", "it", "pt"],
+                "tags": ["translation", "language", "multilingual", "analysis"],
+                "metadata": {
+                    "max_text_length": 5000,
+                    "response_time": "fast"
+                }
+            }
+        }
