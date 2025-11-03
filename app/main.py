@@ -6,7 +6,7 @@ RESTful API for analyzing and storing strings with their computed properties.
 Run with: uvicorn app.main:app --reload
 """
 
-from fastapi import FastAPI, Depends, HTTPException, status, Query
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Request
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -1025,7 +1025,7 @@ async def a2a_multilingo_agent_info():
         200: {"description": "A2A request processed successfully"}
     }
 )
-async def a2a_multilingo_agent_post(request: Dict = None):
+async def a2a_multilingo_agent_post(request: Request):
     """
     A2A Protocol POST endpoint for Mastra integration with Telex.
     
@@ -1047,8 +1047,14 @@ async def a2a_multilingo_agent_post(request: Dict = None):
         from app.chat_handler import process_chat_message
         from app.database import SessionLocal
         
+        # Get request body
+        try:
+            body = await request.json()
+        except:
+            body = {}
+        
         # Handle empty request
-        if not request:
+        if not body or not body.get("messages"):
             return {
                 "role": "assistant",
                 "content": "👋 Hello! I'm MultiLingo Agent!\n\nI can help you with:\n• Translations (25+ languages)\n• Language detection\n• String analysis\n\nTry: 'Translate hello to Spanish'",
@@ -1059,9 +1065,9 @@ async def a2a_multilingo_agent_post(request: Dict = None):
             }
         
         # Extract message from A2A format
-        messages = request.get("messages", [])
+        messages = body.get("messages", [])
         user_message = ""
-        user_id = request.get("userId") or request.get("user_id") or "telex_user"
+        user_id = body.get("userId") or body.get("user_id") or "telex_user"
         
         # Get the last user message
         for msg in reversed(messages):
