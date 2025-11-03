@@ -976,8 +976,47 @@ def multilingo_chat(
 
 
 # ============================================================================
-# A2A PROTOCOL ENDPOINT (Mastra Format for Telex)
+# A2A PROTOCOL ENDPOINTS (Mastra Format for Telex)
 # ============================================================================
+
+@app.get(
+    "/a2a/agent/multilingoAgent",
+    tags=["A2A Protocol"],
+    responses={
+        200: {"description": "Agent information"}
+    }
+)
+async def a2a_multilingo_agent_info():
+    """
+    A2A Protocol GET endpoint - Returns agent information.
+    
+    This is called by Telex/Mastra to get agent capabilities.
+    """
+    return {
+        "name": "MultiLingo Translation Agent",
+        "description": "AI-powered translation agent supporting 25+ languages with natural language understanding",
+        "version": "1.0.0",
+        "capabilities": [
+            "translation",
+            "language_detection",
+            "text_analysis",
+            "natural_language_understanding"
+        ],
+        "supported_languages": [
+            "en", "es", "fr", "de", "it", "pt", "ru", "ja", "zh-cn", "ko",
+            "ar", "hi", "nl", "tr", "sv", "pl", "vi", "th", "el", "cs",
+            "da", "fi", "no", "ro", "uk"
+        ],
+        "endpoints": {
+            "chat": "/a2a/agent/multilingoAgent",
+            "health": "/health",
+            "docs": "/docs"
+        },
+        "status": "active",
+        "response_format": "mastra-a2a",
+        "system_prompt": "You are MultiLingo, an intelligent translation assistant that provides accurate translations in 25+ languages, detects languages automatically, and analyzes text properties. You understand natural language queries and respond in a friendly, helpful manner with formatted results."
+    }
+
 
 @app.post(
     "/a2a/agent/multilingoAgent",
@@ -986,9 +1025,9 @@ def multilingo_chat(
         200: {"description": "A2A request processed successfully"}
     }
 )
-async def a2a_multilingo_agent(request: Dict = None):
+async def a2a_multilingo_agent_post(request: Dict = None):
     """
-    A2A Protocol endpoint for Mastra integration with Telex.
+    A2A Protocol POST endpoint for Mastra integration with Telex.
     
     This endpoint follows the Mastra A2A protocol format.
     Telex will send requests here when users interact with the agent.
@@ -1008,8 +1047,19 @@ async def a2a_multilingo_agent(request: Dict = None):
         from app.chat_handler import process_chat_message
         from app.database import SessionLocal
         
+        # Handle empty request
+        if not request:
+            return {
+                "role": "assistant",
+                "content": "👋 Hello! I'm MultiLingo Agent!\n\nI can help you with:\n• Translations (25+ languages)\n• Language detection\n• String analysis\n\nTry: 'Translate hello to Spanish'",
+                "metadata": {
+                    "intent": "greeting",
+                    "success": True
+                }
+            }
+        
         # Extract message from A2A format
-        messages = request.get("messages", []) if request else []
+        messages = request.get("messages", [])
         user_message = ""
         user_id = request.get("userId") or request.get("user_id") or "telex_user"
         
@@ -1022,7 +1072,10 @@ async def a2a_multilingo_agent(request: Dict = None):
         if not user_message:
             return {
                 "role": "assistant",
-                "content": "I didn't receive a message. Please try again!"
+                "content": "I didn't receive a message. Please try again!",
+                "metadata": {
+                    "success": False
+                }
             }
         
         # Get database session
