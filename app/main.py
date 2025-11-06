@@ -29,7 +29,9 @@ from app.schemas import (
     TelexWebhookPayload,
     TelexResponse,
     ChatRequest,
-    ChatResponse
+    ChatResponse,
+    AgentCard,
+    AgentSkill
 )
 from app.crud import (
     create_string,
@@ -535,6 +537,82 @@ def health_check(db: Session = Depends(get_db)):
             "database": "disconnected",
             "error": str(e)
         }
+
+
+# ============================================================================
+# AGENT CARD ENDPOINT (Telex Agent Discovery)
+# ============================================================================
+
+@app.get(
+    "/.well-known/agent-card",
+    response_model=AgentCard,
+    tags=["Agent Discovery"],
+    responses={
+        200: {"description": "Agent card retrieved successfully"}
+    }
+)
+def get_agent_card():
+    """
+    Agent Card endpoint for Telex.im discovery.
+    
+    This endpoint provides metadata about the MultiLingo Agent.
+    Telex.im uses this to discover and register agents.
+    
+    Standard location: /.well-known/agent-card
+    """
+    import os
+    from app.translator import get_supported_languages
+    
+    # Get base URL from environment
+    base_url = os.getenv("BASE_URL", "https://your-app-domain.com")
+    webhook_url = f"{base_url}/webhook/telex"
+    
+    # Get supported languages
+    supported_langs = get_supported_languages()
+    lang_codes = list(supported_langs.values())[:10]
+    
+    return AgentCard(
+        name="MultiLingo Agent",
+        description="AI-powered translation and string analysis agent supporting 25+ languages",
+        version="2.0.0",
+        author="HNG Backend Team",
+        homepage="https://github.com/yourusername/multilingo-agent",
+        webhook_url=webhook_url,
+        skills=[
+            AgentSkill(
+                name="Translation",
+                description="Translate text between 25+ languages",
+                examples=[
+                    "Translate 'hello' to Spanish",
+                    "How do you say 'thank you' in French?"
+                ]
+            ),
+            AgentSkill(
+                name="Language Detection",
+                description="Detect the language of any text",
+                examples=[
+                    "What language is 'bonjour'?",
+                    "Detect language of 'hola mundo'"
+                ]
+            ),
+            AgentSkill(
+                name="String Analysis",
+                description="Analyze text properties",
+                examples=[
+                    "Analyze 'racecar'",
+                    "Is 'level' a palindrome?"
+                ]
+            )
+        ],
+        supported_languages=lang_codes,
+        tags=["translation", "language", "multilingual", "analysis"],
+        icon_url="https://api.dicebear.com/7.x/bottts/svg?seed=multilingo",
+        metadata={
+            "max_text_length": 5000,
+            "response_time": "fast",
+            "total_languages": len(supported_langs)
+        }
+    )
 
 
 # ============================================================================
@@ -1045,7 +1123,7 @@ async def a2a_multilingo_agent_post(request: Request, background_tasks: Backgrou
     }
     """
     try:
-        from app.chat_handler import process_chat_message_fast
+        from app.chat_handler import process_chat_message
         from app.database import SessionLocal
         
         # Get request body
@@ -1088,10 +1166,10 @@ async def a2a_multilingo_agent_post(request: Request, background_tasks: Backgrou
         # Minimal context (no DB query for speed)
         context = {}
         
-        # Process the message using optimized fast handler (with cache, no analysis)
+        # Process the message
         try:
             chat_response = await asyncio.wait_for(
-                asyncio.to_thread(process_chat_message_fast, user_message, context),
+                asyncio.to_thread(process_chat_message, user_message, context),
                 timeout=8  # Reduced timeout for faster failure
             )
         except asyncio.TimeoutError:

@@ -1,13 +1,5 @@
 """
-Chat Handler & Intent Detection
---------------------------------
-Handles natural language chat interactions with the MultiLingo Agent.
-
-Features:
-- Intent detection (translate, detect language, help, etc.)
-- Natural language parsing
-- Context-aware responses
-- Multi-turn conversations
+Chat Handler & Intent Detection - FIXED VERSION
 """
 
 import re
@@ -22,32 +14,8 @@ from app.translator import (
 from app.analyzer import analyze_string
 
 
-# ============================================================================
-# INTENT DETECTION
-# ============================================================================
-
 def detect_intent(message: str) -> Tuple[str, Dict]:
-    """
-    Detects user intent from natural language message.
-    
-    Intents:
-    - 'translate': User wants to translate text
-    - 'detect_language': User wants to know what language something is
-    - 'analyze': User wants string analysis
-    - 'help': User needs help/instructions
-    - 'list_languages': User wants to see supported languages
-    - 'unknown': Cannot determine intent
-    
-    Args:
-        message: User's message in natural language
-    
-    Returns:
-        Tuple of (intent, extracted_data)
-        
-    Example:
-        detect_intent("Translate 'hello' to Spanish")
-        -> ("translate", {"text": "hello", "target_language": "spanish"})
-    """
+    """Detects user intent from natural language message."""
     message_lower = message.lower().strip()
     
     # Intent 1: Translation - try quoted text first, then unquoted
@@ -86,7 +54,7 @@ def detect_intent(message: str) -> Tuple[str, Dict]:
         if match:
             return "analyze", {"text": match.group(1).strip()}
     
-    # Intent 4: List languages (handle typos like "langueages")
+    # Intent 4: List languages (handle typos)
     if 'list' in message_lower and ('lang' in message_lower or 'language' in message_lower):
         return "list_languages", {}
     
@@ -105,30 +73,11 @@ def detect_intent(message: str) -> Tuple[str, Dict]:
     return "unknown", {}
 
 
-# ============================================================================
-# RESPONSE GENERATION
-# ============================================================================
-
 def handle_translation(text: str, target_language: str, analyze: bool = False) -> Dict:
-    """
-    Handles translation request and generates response.
-    
-    Args:
-        text: Text to translate
-        target_language: Target language code or name
-        analyze: Whether to include string analysis
-    
-    Returns:
-        Dictionary with response message and data
-    """
+    """Handles translation request."""
     try:
-        # Normalize language code
         target_lang_code = normalize_language_code(target_language)
-        
-        # Perform translation
         result = translate_text(text, target_lang_code)
-        
-        # Build ultra-simple response (avoid truncation)
         message = f"{result['original_text']} → {result['translated_text']}"
         
         return {
@@ -141,7 +90,6 @@ def handle_translation(text: str, target_language: str, analyze: bool = False) -
                 "target_language": target_lang_code
             }
         }
-        
     except ValueError as e:
         return {
             "success": False,
@@ -151,18 +99,9 @@ def handle_translation(text: str, target_language: str, analyze: bool = False) -
 
 
 def handle_language_detection(text: str) -> Dict:
-    """
-    Handles language detection request.
-    
-    Args:
-        text: Text to detect language
-    
-    Returns:
-        Dictionary with response message and data
-    """
+    """Handles language detection request."""
     try:
         lang_code, lang_name, confidence = detect_language(text)
-        
         message = f"'{text}' is {lang_name.title()} ({lang_code})"
         
         return {
@@ -175,7 +114,6 @@ def handle_language_detection(text: str) -> Dict:
                 "confidence": confidence
             }
         }
-        
     except ValueError as e:
         return {
             "success": False,
@@ -185,18 +123,9 @@ def handle_language_detection(text: str) -> Dict:
 
 
 def handle_analysis(text: str) -> Dict:
-    """
-    Handles string analysis request.
-    
-    Args:
-        text: Text to analyze
-    
-    Returns:
-        Dictionary with response message and data
-    """
+    """Handles string analysis request."""
     try:
         analysis = analyze_string(text)
-        
         palindrome = "palindrome" if analysis['is_palindrome'] else "not a palindrome"
         message = f"'{text}' - {analysis['length']} chars, {analysis['word_count']} words, {palindrome}"
         
@@ -205,7 +134,6 @@ def handle_analysis(text: str) -> Dict:
             "message": message,
             "data": analysis
         }
-        
     except Exception as e:
         return {
             "success": False,
@@ -215,12 +143,7 @@ def handle_analysis(text: str) -> Dict:
 
 
 def handle_help() -> Dict:
-    """
-    Generates help message with available commands.
-    
-    Returns:
-        Dictionary with help message
-    """
+    """Generates help message."""
     message = """I can help with:
 
 1. Translation - "Translate 'hello' to Spanish"
@@ -238,20 +161,10 @@ Just ask naturally!"""
 
 
 def handle_list_languages() -> Dict:
-    """
-    Lists all supported languages.
-    
-    Returns:
-        Dictionary with language list
-    """
+    """Lists all supported languages."""
     languages = get_supported_languages()
+    lang_list = [f"{name.title()} ({code})" for name, code in sorted(languages.items())]
     
-    # Build compact language list
-    lang_list = []
-    for name, code in sorted(languages.items()):
-        lang_list.append(f"{name.title()} ({code})")
-    
-    # Show top 10 in compact format
     message = "Supported Languages:\n" + ", ".join(lang_list[:10])
     message += f"\n\n+ {len(lang_list) - 10} more languages"
     
@@ -263,12 +176,7 @@ def handle_list_languages() -> Dict:
 
 
 def handle_greeting() -> Dict:
-    """
-    Handles greeting messages.
-    
-    Returns:
-        Dictionary with greeting response
-    """
+    """Handles greeting messages."""
     message = "Hello! I'm MultiLingo Agent. I can translate text, detect languages, and analyze strings. Type 'help' for commands!"
     
     return {
@@ -279,12 +187,7 @@ def handle_greeting() -> Dict:
 
 
 def handle_unknown() -> Dict:
-    """
-    Handles unknown/unclear requests.
-    
-    Returns:
-        Dictionary with clarification message
-    """
+    """Handles unknown/unclear requests."""
     message = "I'm not sure what you want. Try: 'translate hello to spanish', 'what language is bonjour?', or 'help'"
     
     return {
@@ -294,42 +197,12 @@ def handle_unknown() -> Dict:
     }
 
 
-# ============================================================================
-# MAIN CHAT PROCESSOR
-# ============================================================================
-
-def process_chat_message(
-    message: str,
-    context: Optional[Dict] = None
-) -> Dict:
-    """
-    Processes a chat message and generates appropriate response.
-    
-    This is the main entry point for chat interactions.
-    
-    Args:
-        message: User's message
-        context: Optional conversation context (previous messages, etc.)
-    
-    Returns:
-        Dictionary with:
-        {
-            "message": "Agent's response",
-            "intent": "detected_intent",
-            "action_taken": "action_performed",
-            "data": {...additional data...},
-            "success": True/False
-        }
-    """
-    # Detect intent
+def process_chat_message(message: str, context: Optional[Dict] = None) -> Dict:
+    """Main entry point for chat interactions."""
     intent, extracted_data = detect_intent(message)
     
-    # Route to appropriate handler
     if intent == "translate":
-        result = handle_translation(
-            extracted_data["text"],
-            extracted_data["target_language"]
-        )
+        result = handle_translation(extracted_data["text"], extracted_data["target_language"])
         action = f"translated_to_{extracted_data['target_language']}"
         
     elif intent == "detect_language":
@@ -352,11 +225,10 @@ def process_chat_message(
         result = handle_greeting()
         action = "greeted_user"
         
-    else:  # unknown
+    else:
         result = handle_unknown()
         action = "unknown_intent"
     
-    # Build complete response
     return {
         "message": result["message"],
         "intent": intent,
