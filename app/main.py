@@ -839,6 +839,7 @@ def telex_webhook(
     """
     try:
         from app.chat_handler import process_chat_message
+        import asyncio
         
         # Get conversation history for context
         history = get_telex_conversation_history(db, payload.user_id, limit=5)
@@ -1095,8 +1096,21 @@ async def a2a_multilingo_agent_post(request: Request):
                 "history": [h.user_message for h in history[:3]]
             }
             
-            # Process the message
-            chat_response = process_chat_message(user_message, context)
+            # Process the message off the event loop with a timeout to avoid UI hangs
+            try:
+                chat_response = await asyncio.wait_for(
+                    asyncio.to_thread(process_chat_message, user_message, context),
+                    timeout=12
+                )
+            except asyncio.TimeoutError:
+                return {
+                    "role": "assistant",
+                    "content": "Sorry, that took too long. Please try again! ⏳",
+                    "metadata": {
+                        "intent": "timeout",
+                        "success": False
+                    }
+                }
             
             # Store conversation
             create_telex_conversation(
