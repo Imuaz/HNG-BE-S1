@@ -316,20 +316,19 @@ def handle_list_languages() -> Dict:
     """
     languages = get_supported_languages()
     
-    # Group languages for better readability
-    message = "🌍 **Supported Languages** (25+ languages)\n\n"
+    # Build clean language list
+    message = "Supported Languages (25+ languages)\n\n"
     
     lang_list = []
     for name, code in sorted(languages.items()):
-        lang_list.append(f"• {name.title()} ({code})")
+        lang_list.append(f"{name.title()} ({code})")
     
-    # Split into columns
-    mid = len(lang_list) // 2
-    col1 = lang_list[:mid]
-    col2 = lang_list[mid:]
+    # Show first 15 languages
+    message += "\n".join(lang_list[:15])
     
-    message += "\n".join(col1[:10])
-    message += f"\n\n...and {len(lang_list) - 10} more!"
+    if len(lang_list) > 15:
+        message += f"\n\n...and {len(lang_list) - 15} more!"
+    
     message += "\n\nYou can use either the language name or code!"
     
     return {
