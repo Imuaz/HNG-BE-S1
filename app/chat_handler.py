@@ -152,20 +152,23 @@ def handle_translation(text: str, target_language: str, analyze: bool = True) ->
         # Perform translation
         result = translate_text(text, target_lang_code)
         
-        # Build response message
+        # Build simple, clean response message (no markdown, minimal formatting)
         response_parts = [
-            f"✅ **Translation Complete!**\n",
-            f"**Original ({result['detected_language']}):** {result['original_text']}",
-            f"**{target_language.title()}:** {result['translated_text']}"
+            f"Translation Complete!",
+            f"",
+            f"Original ({result['detected_language']}): {result['original_text']}",
+            f"{target_language.title()}: {result['translated_text']}"
         ]
         
-        # Add analysis if requested
+        # Add analysis if requested (simplified)
         if analyze:
             analysis = analyze_string(text)
-            response_parts.append(f"\n📊 **Analysis:**")
-            response_parts.append(f"- Length: {analysis['length']} characters")
-            response_parts.append(f"- Words: {analysis['word_count']}")
-            response_parts.append(f"- Palindrome: {'Yes ✓' if analysis['is_palindrome'] else 'No ✗'}")
+            response_parts.append(f"")
+            response_parts.append(f"Analysis:")
+            response_parts.append(f"Length: {analysis['length']} characters")
+            response_parts.append(f"Words: {analysis['word_count']}")
+            if analysis['is_palindrome']:
+                response_parts.append(f"Palindrome: Yes")
         
         return {
             "success": True,
@@ -200,10 +203,10 @@ def handle_language_detection(text: str) -> Dict:
     try:
         lang_code, lang_name, confidence = detect_language(text)
         
-        message = f"🔍 **Language Detected!**\n\n"
-        message += f"**Text:** {text}\n"
-        message += f"**Language:** {lang_name.title()} ({lang_code})\n"
-        message += f"**Confidence:** {confidence:.0%}"
+        message = f"Language Detected!\n\n"
+        message += f"Text: {text}\n"
+        message += f"Language: {lang_name.title()} ({lang_code})\n"
+        message += f"Confidence: {confidence:.0%}"
         
         return {
             "success": True,
@@ -237,14 +240,16 @@ def handle_analysis(text: str) -> Dict:
     try:
         analysis = analyze_string(text)
         
-        message = f"📊 **String Analysis**\n\n"
-        message += f"**Text:** {text}\n\n"
-        message += f"**Properties:**\n"
-        message += f"- Length: {analysis['length']} characters\n"
-        message += f"- Words: {analysis['word_count']}\n"
-        message += f"- Unique characters: {analysis['unique_characters']}\n"
-        message += f"- Palindrome: {'Yes ✓' if analysis['is_palindrome'] else 'No ✗'}\n"
-        message += f"- Most common character: {max(analysis['character_frequency_map'].items(), key=lambda x: x[1])[0] if analysis['character_frequency_map'] else 'N/A'}"
+        message = f"String Analysis\n\n"
+        message += f"Text: {text}\n\n"
+        message += f"Properties:\n"
+        message += f"Length: {analysis['length']} characters\n"
+        message += f"Words: {analysis['word_count']}\n"
+        message += f"Unique characters: {analysis['unique_characters']}\n"
+        message += f"Palindrome: {'Yes' if analysis['is_palindrome'] else 'No'}\n"
+        if analysis['character_frequency_map']:
+            most_common = max(analysis['character_frequency_map'].items(), key=lambda x: x[1])[0]
+            message += f"Most common character: {most_common}"
         
         return {
             "success": True,
@@ -267,35 +272,33 @@ def handle_help() -> Dict:
     Returns:
         Dictionary with help message
     """
-    message = """
-🤖 **MultiLingo Agent - Help Guide**
+    message = """MultiLingo Agent - Help Guide
 
 I can help you with:
 
-**🌍 Translation:**
+Translation:
 - "Translate 'hello' to Spanish"
 - "How do you say 'thank you' in French?"
 - "What is 'bonjour' in English?"
 
-**🔍 Language Detection:**
+Language Detection:
 - "What language is 'hola mundo'?"
 - "Detect language of 'bonjour'"
 
-**📊 String Analysis:**
+String Analysis:
 - "Analyze 'hello world'"
 - "Is 'racecar' a palindrome?"
 
-**📋 Other Commands:**
+Other Commands:
 - "List languages" - See all supported languages
 - "Help" - Show this message
 
-**Examples:**
-• Translate "good morning" to German
-• What language is "ciao"?
-• Analyze "level"
+Examples:
+- Translate "good morning" to German
+- What language is "ciao"?
+- Analyze "level"
 
-Just ask naturally! I'll understand. 😊
-"""
+Just ask naturally! I'll understand."""
     
     return {
         "success": True,
@@ -343,21 +346,19 @@ def handle_greeting() -> Dict:
     Returns:
         Dictionary with greeting response
     """
-    message = """
-👋 **Hello! I'm MultiLingo Agent!**
+    message = """Hello! I'm MultiLingo Agent!
 
 I'm here to help you with:
-✅ Translations (25+ languages)
-✅ Language detection
-✅ String analysis
+- Translations (25+ languages)
+- Language detection
+- String analysis
 
 Try asking me:
-• "Translate 'hello' to Spanish"
-• "What language is this?"
-• "Analyze 'racecar'"
+- "Translate 'hello' to Spanish"
+- "What language is this?"
+- "Analyze 'racecar'"
 
-Type "help" to see all commands!
-"""
+Type "help" to see all commands!"""
     
     return {
         "success": True,
@@ -373,22 +374,20 @@ def handle_unknown() -> Dict:
     Returns:
         Dictionary with clarification message
     """
-    message = """
-🤔 **I'm not sure what you want me to do.**
+    message = """I'm not sure what you want me to do.
 
 Here are some things I can help with:
 
-🌍 **Translation:**
+Translation:
 "Translate 'hello' to Spanish"
 
-🔍 **Language Detection:**
+Language Detection:
 "What language is 'bonjour'?"
 
-📊 **String Analysis:**
+String Analysis:
 "Analyze 'hello world'"
 
-Type "help" for more examples!
-"""
+Type "help" for more examples!"""
     
     return {
         "success": True,

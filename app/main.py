@@ -840,7 +840,6 @@ def telex_webhook(
     """
     try:
         from app.chat_handler import process_chat_message
-        import asyncio
         
         # Get conversation history for context
         history = get_telex_conversation_history(db, payload.user_id, limit=5)
