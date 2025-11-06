@@ -6,13 +6,14 @@ RESTful API for analyzing and storing strings with their computed properties.
 Run with: uvicorn app.main:app --reload
 """
 
-from fastapi import FastAPI, Depends, HTTPException, status, Query, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, BackgroundTasks
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import Optional, List, Dict
 from datetime import datetime
+import asyncio
 
 from app.database import get_db
 from app.schemas import (
@@ -1026,7 +1027,7 @@ async def a2a_multilingo_agent_info():
         200: {"description": "A2A request processed successfully"}
     }
 )
-async def a2a_multilingo_agent_post(request: Request):
+async def a2a_multilingo_agent_post(request: Request, background_tasks: BackgroundTasks):
     """
     A2A Protocol POST endpoint for Mastra integration with Telex.
     
@@ -1045,7 +1046,7 @@ async def a2a_multilingo_agent_post(request: Request):
     }
     """
     try:
-        from app.chat_handler import process_chat_message
+        from app.chat_handler import process_chat_message_fast
         from app.database import SessionLocal
         
         # Get request body
@@ -1085,59 +1086,63 @@ async def a2a_multilingo_agent_post(request: Request):
                 }
             }
         
-        # Get database session
-        db = SessionLocal()
+        # Minimal context (no DB query for speed)
+        context = {}
         
+        # Process the message using optimized fast handler (with cache, no analysis)
         try:
-            # Get conversation context
-            history = get_telex_conversation_history(db, user_id, limit=5)
-            context = {
-                "last_text": history[0].user_message if history else None,
-                "history": [h.user_message for h in history[:3]]
-            }
-            
-            # Process the message off the event loop with a timeout to avoid UI hangs
-            try:
-                chat_response = await asyncio.wait_for(
-                    asyncio.to_thread(process_chat_message, user_message, context),
-                    timeout=12
-                )
-            except asyncio.TimeoutError:
-                return {
-                    "role": "assistant",
-                    "content": "Sorry, that took too long. Please try again! ⏳",
-                    "metadata": {
-                        "intent": "timeout",
-                        "success": False
-                    }
-                }
-            
-            # Store conversation
-            create_telex_conversation(
-                db=db,
-                telex_user_id=user_id,
-                user_message=user_message,
-                agent_response=chat_response["message"],
-                detected_intent=chat_response["intent"],
-                action_taken=chat_response["action_taken"],
-                context_data=context,
-                success=chat_response["success"]
+            chat_response = await asyncio.wait_for(
+                asyncio.to_thread(process_chat_message_fast, user_message, context),
+                timeout=8  # Reduced timeout for faster failure
             )
-            
-            # Return in A2A format
+        except asyncio.TimeoutError:
             return {
                 "role": "assistant",
-                "content": chat_response["message"],
+                "content": "Sorry, that took too long. Please try again! ⏳",
                 "metadata": {
-                    "intent": chat_response["intent"],
-                    "action": chat_response["action_taken"],
-                    "success": chat_response["success"],
-                    "data": chat_response.get("data")
+                    "intent": "timeout",
+                    "success": False
                 }
             }
-            
-        finally:
-            db.close()
+        
+        # Store conversation in background (don't wait for DB write)
+        # This improves response time significantly - DB writes are slow
+        def store_conversation_bg():
+            try:
+                db = SessionLocal()
+                try:
+                    create_telex_conversation(
+                        db=db,
+                        telex_user_id=user_id,
+                        user_message=user_message,
+                        agent_response=chat_response["message"],
+                        detected_intent=chat_response["intent"],
+                        action_taken=chat_response["action_taken"],
+                        context_data=context,
+                        success=chat_response["success"]
+                    )
+                    db.commit()
+                except:
+                    db.rollback()
+                finally:
+                    db.close()
+            except:
+                pass  # Fail silently - don't block response
+        
+        # Add background task (runs after response is sent)
+        background_tasks.add_task(store_conversation_bg)
+        
+        # Return immediately (don't wait for DB)
+        return {
+            "role": "assistant",
+            "content": chat_response["message"],
+            "metadata": {
+                "intent": chat_response["intent"],
+                "action": chat_response["action_taken"],
+                "success": chat_response["success"],
+                "data": chat_response.get("data")
+            }
+        }
             
     except Exception as e:
         import traceback

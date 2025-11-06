@@ -485,3 +485,155 @@ def process_chat_message(
         "data": result.get("data"),
         "success": result["success"]
     }
+
+
+# ============================================================================
+# OPTIMIZED A2A PROCESSOR (Fast, no analysis, uses cache)
+# ============================================================================
+
+def process_chat_message_fast(
+    message: str,
+    context: Optional[Dict] = None
+) -> Dict:
+    """
+    Optimized chat processor for A2A endpoints.
+    
+    Differences from process_chat_message:
+    - Uses translation cache
+    - Skips string analysis (faster)
+    - Optimized for sub-2s response times
+    
+    Args:
+        message: User's message
+        context: Optional conversation context
+    
+    Returns:
+        Dictionary with response data
+    """
+    from app.cache import get_cached_translation, set_cached_translation
+    
+    # Detect intent
+    intent, extracted_data = detect_intent(message)
+    
+    # Route to appropriate handler
+    if intent == "translate":
+        text = extracted_data["text"]
+        target_lang = extracted_data["target_language"]
+        
+        # Check cache first
+        cached = get_cached_translation(text, target_lang)
+        if cached:
+            # Fast path: return cached result
+            response_parts = [
+                f"✅ **Translation Complete!**\n",
+                f"**Original ({cached['detected_language']}):** {cached['original_text']}",
+                f"**{target_lang.title()}:** {cached['translated_text']}"
+            ]
+            result = {
+                "success": True,
+                "message": "\n".join(response_parts),
+                "data": {
+                    "original": cached['original_text'],
+                    "translation": cached['translated_text'],
+                    "source_language": cached['source_language'],
+                    "target_language": target_lang
+                }
+            }
+        else:
+            # Cache miss: translate (no analysis for speed)
+            result = handle_translation(text, target_lang, analyze=False)
+            # Cache the result
+            if result["success"] and result.get("data"):
+                set_cached_translation(
+                    text,
+                    target_lang,
+                    {
+                        "original_text": result["data"]["original"],
+                        "translated_text": result["data"]["translation"],
+                        "source_language": result["data"]["source_language"],
+                        "target_language": result["data"]["target_language"],
+                        "detected_language": result["data"].get("source_language", "unknown")
+                    }
+                )
+        
+        action = f"translated_to_{target_lang}"
+        
+    elif intent == "translate_context":
+        if context and context.get("last_text"):
+            text = context["last_text"]
+            target_lang = extracted_data["target_language"]
+            
+            # Check cache
+            cached = get_cached_translation(text, target_lang)
+            if cached:
+                response_parts = [
+                    f"✅ **Translation Complete!**\n",
+                    f"**Original ({cached['detected_language']}):** {cached['original_text']}",
+                    f"**{target_lang.title()}:** {cached['translated_text']}"
+                ]
+                result = {
+                    "success": True,
+                    "message": "\n".join(response_parts),
+                    "data": {
+                        "original": cached['original_text'],
+                        "translation": cached['translated_text'],
+                        "source_language": cached['source_language'],
+                        "target_language": target_lang
+                    }
+                }
+            else:
+                result = handle_translation(text, target_lang, analyze=False)
+                if result["success"] and result.get("data"):
+                    set_cached_translation(
+                        text,
+                        target_lang,
+                        {
+                            "original_text": result["data"]["original"],
+                            "translated_text": result["data"]["translation"],
+                            "source_language": result["data"]["source_language"],
+                            "target_language": result["data"]["target_language"],
+                            "detected_language": result["data"].get("source_language", "unknown")
+                        }
+                    )
+            action = f"translated_context_to_{target_lang}"
+        else:
+            result = {
+                "success": False,
+                "message": "I need some text to translate! Try: 'Translate [your text] to [language]'",
+                "data": None
+            }
+            action = "missing_context"
+            
+    elif intent == "detect_language":
+        result = handle_language_detection(extracted_data["text"])
+        action = "detected_language"
+        
+    elif intent == "analyze":
+        # For A2A, keep analysis but make it faster
+        result = handle_analysis(extracted_data["text"])
+        action = "analyzed_string"
+        
+    elif intent == "help":
+        result = handle_help()
+        action = "provided_help"
+        
+    elif intent == "list_languages":
+        result = handle_list_languages()
+        action = "listed_languages"
+        
+    elif intent == "greeting":
+        result = handle_greeting()
+        action = "greeted_user"
+        
+    else:  # unknown
+        result = handle_unknown()
+        action = "unknown_intent"
+    
+    # Build complete response
+    return {
+        "message": result["message"],
+        "intent": intent,
+        "action_taken": action,
+        "data": result.get("data"),
+        "success": result["success"]
+    }
