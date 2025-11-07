@@ -14,10 +14,14 @@ from deep_translator import GoogleTranslator
 from langdetect import detect, LangDetectException
 from typing import Dict, List, Optional, Tuple
 import logging
+from functools import lru_cache
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Simple in-memory cache for translations (speeds up repeat requests)
+_translation_cache = {}
 
 # Common language codes
 LANGUAGE_CODES = {
@@ -81,7 +85,7 @@ def translate_text(
     source_lang: Optional[str] = None
 ) -> Dict:
     """
-    Translates text to target language using deep-translator.
+    Translates text to target language using deep-translator with caching.
     
     Args:
         text: Text to translate
@@ -97,6 +101,12 @@ def translate_text(
     try:
         # Normalize language codes
         target_lang = normalize_language_code(target_lang)
+        
+        # Check cache first (speeds up repeat requests)
+        cache_key = f"{text.lower()}_{target_lang}"
+        if cache_key in _translation_cache:
+            logger.info(f"Cache hit for: '{text}' → {target_lang}")
+            return _translation_cache[cache_key]
         
         # Auto-detect source language if not provided
         detected_name = "unknown"
@@ -132,6 +142,10 @@ def translate_text(
             "target_language": target_lang,
             "detected_language": detected_name
         }
+        
+        # Cache the result (limit cache size to 1000 entries)
+        if len(_translation_cache) < 1000:
+            _translation_cache[cache_key] = result
         
         logger.info(f"Translation successful: '{text}' → '{translated}'")
         return result

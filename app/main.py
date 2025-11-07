@@ -1138,50 +1138,119 @@ async def a2a_multilingo_agent_post(request: Request, background_tasks: Backgrou
         if not user_message:
             user_message = "help"
         
-        # Minimal context (no DB query for speed)
-        context = {}
+        # Fast path for simple commands (no API calls needed)
+        user_message_lower = user_message.lower().strip()
         
-        # Process the message
-        try:
-            chat_response = await asyncio.wait_for(
-                asyncio.to_thread(process_chat_message, user_message, context),
-                timeout=8  # Reduced timeout for faster failure
-            )
-        except asyncio.TimeoutError:
+        # Quick response for help/greeting/list (no processing needed)
+        if user_message_lower in ['help', 'hi', 'hello', 'hey'] or 'list' in user_message_lower and 'lang' in user_message_lower:
+            task_id = str(uuid.uuid4())
+            context_id = body.get("contextId", str(uuid.uuid4()))
+            message_id = str(uuid.uuid4())
+            timestamp = datetime.utcnow().isoformat() + "Z"
+            
+            if user_message_lower == 'help':
+                response_text = "I can help with:\n\n1. Translation - \"Translate 'hello' to Spanish\"\n2. Language Detection - \"What language is 'bonjour'?\"\n3. String Analysis - \"Analyze 'racecar'\"\n4. List Languages - \"list languages\"\n\nJust ask naturally!"
+                intent_name = "help"
+            elif 'list' in user_message_lower:
+                response_text = "Supported Languages:\nArabic (ar), Chinese (zh-cn), Czech (cs), Danish (da), Dutch (nl), English (en), Finnish (fi), French (fr), German (de), Greek (el)\n\n+ 15 more languages"
+                intent_name = "list_languages"
+            else:
+                response_text = "Hello! I'm MultiLingo Agent. I can translate text, detect languages, and analyze strings. Type 'help' for commands!"
+                intent_name = "greeting"
+            
             return {
-                "role": "assistant",
-                "content": "Sorry, that took too long. Please try again! ⏳",
-                "metadata": {
-                    "intent": "timeout",
-                    "success": False
+                "jsonrpc": "2.0",
+                "id": jsonrpc_id,
+                "result": {
+                    "id": task_id,
+                    "contextId": context_id,
+                    "status": {
+                        "state": "input-required",
+                        "timestamp": timestamp,
+                        "message": {
+                            "messageId": message_id,
+                            "role": "agent",
+                            "parts": [{"kind": "text", "text": response_text}],
+                            "kind": "message",
+                            "taskId": task_id
+                        }
+                    },
+                    "artifacts": [{"artifactId": str(uuid.uuid4()), "name": intent_name, "parts": [{"kind": "text", "text": response_text}]}],
+                    "history": messages,
+                    "kind": "task"
                 }
             }
         
-        # Store conversation in background (don't wait for DB write)
-        # This improves response time significantly - DB writes are slow
+        # Minimal context (no DB query for speed)
+        context = {}
+        
+        # Process the message with shorter timeout for production
+        try:
+            chat_response = await asyncio.wait_for(
+                asyncio.to_thread(process_chat_message, user_message, context),
+                timeout=5  # 5 second timeout for faster response
+            )
+        except asyncio.TimeoutError:
+            # Return timeout response in JSON-RPC format
+            task_id = str(uuid.uuid4())
+            context_id = body.get("contextId", str(uuid.uuid4()))
+            message_id = str(uuid.uuid4())
+            timestamp = datetime.utcnow().isoformat() + "Z"
+            
+            return {
+                "jsonrpc": "2.0",
+                "id": jsonrpc_id,
+                "result": {
+                    "id": task_id,
+                    "contextId": context_id,
+                    "status": {
+                        "state": "input-required",
+                        "timestamp": timestamp,
+                        "message": {
+                            "messageId": message_id,
+                            "role": "agent",
+                            "parts": [
+                                {
+                                    "kind": "text",
+                                    "text": "Request timeout. Please try again!"
+                                }
+                            ],
+                            "kind": "message",
+                            "taskId": task_id
+                        }
+                    },
+                    "artifacts": [],
+                    "history": messages,
+                    "kind": "task"
+                }
+            }
+        
+        # Store conversation in background (non-blocking, runs after response)
         def store_conversation_bg():
             try:
+                from app.database import SessionLocal
                 db = SessionLocal()
                 try:
+                    # Quick DB write - don't query history
                     create_telex_conversation(
                         db=db,
-                        telex_user_id=user_id,
+                        telex_user_id="telex_user",
                         user_message=user_message,
                         agent_response=chat_response["message"],
                         detected_intent=chat_response["intent"],
                         action_taken=chat_response["action_taken"],
-                        context_data=context,
+                        context_data={},
                         success=chat_response["success"]
                     )
                     db.commit()
-                except:
+                except Exception:
                     db.rollback()
                 finally:
                     db.close()
-            except:
-                pass  # Fail silently - don't block response
+            except Exception:
+                pass  # Fail silently
         
-        # Add background task (runs after response is sent)
+        # Add background task (executes AFTER response is sent to client)
         background_tasks.add_task(store_conversation_bg)
         
         # Generate IDs
