@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from typing import Optional, List, Dict
 from datetime import datetime
 import asyncio
+import logging
 
 from app.database import get_db
 from app.schemas import (
@@ -50,6 +51,9 @@ from app.crud import (
 # ============================================================================
 # CREATE FASTAPI APPLICATION
 # ============================================================================
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="String Analyzer API",
@@ -1131,12 +1135,29 @@ async def a2a_multilingo_agent_post(request: Request, background_tasks: Backgrou
         # Get the last user message
         for msg in reversed(messages):
             if msg.get("role") == "user":
-                user_message = msg.get("content", "")
-                break
+                # Try multiple message formats:
+                # 1. Standard: {"role": "user", "content": "..."}
+                # 2. Alternative: {"role": "user", "text": "..."}
+                # 3. Parts format: {"role": "user", "parts": [{"kind": "text", "text": "..."}]}
+                user_message = msg.get("content") or msg.get("text")
+                
+                # Check parts format if content/text not found
+                if not user_message and "parts" in msg:
+                    parts = msg.get("parts", [])
+                    for part in parts:
+                        if part.get("kind") == "text" and part.get("text"):
+                            user_message = part.get("text")
+                            break
+                
+                if user_message:
+                    break
         
         # Handle empty message - default to help
         if not user_message:
             user_message = "help"
+        
+        # Log the extracted message for debugging
+        logger.info(f"A2A: Extracted user message: '{user_message}'")
         
         # Fast path for simple commands (no API calls needed)
         user_message_lower = user_message.lower().strip()
