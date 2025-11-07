@@ -1188,107 +1188,105 @@ async def a2a_multilingo_agent_post(request: Request):
                 }
             }
         
-        # Get database session
-        db = SessionLocal()
         context_id = params.get("contextId", str(uuid.uuid4()))
         
-        try:
-            # Get conversation context
-            history = get_telex_conversation_history(db, context_id, limit=5)
-            context = {
-                "last_text": history[0].user_message if history else None,
-                "history": [h.user_message for h in history[:3]]
-            }
-            
-            # Process the message
-            chat_response = process_chat_message(user_message, context)
-            
-            # Determine state based on intent
-            # "completed" for actions that produce a result (translate, analyze, detect_language, list_languages)
-            # "input-required" for help, greeting, unknown (conversational)
-            intent = chat_response["intent"]
-            completed_intents = ["translate", "analyze", "detect_language", "list_languages"]
-            state = "completed" if intent in completed_intents else "input-required"
-            
-            # Store conversation
-            create_telex_conversation(
-                db=db,
-                telex_user_id=context_id,
-                telex_conversation_id=context_id,
-                telex_message_id=message_id,
-                user_message=user_message,
-                agent_response=chat_response["message"],
-                detected_intent=chat_response["intent"],
-                action_taken=chat_response["action_taken"],
-                context_data=context,
-                success=chat_response["success"]
-            )
-            
-            # Build conversation history for response
-            conversation_history = []
-            for h in reversed(history[:5]):
-                conversation_history.append({
-                    "role": "user",
-                    "content": h.user_message
-                })
-                conversation_history.append({
-                    "role": "agent",
-                    "content": h.agent_response
-                })
-            
-            # Add current exchange
-            conversation_history.append({
+        # Process the message FIRST (fastest path - no DB blocking)
+        import time
+        start_time = time.time()
+        print(f"[TELEX] Processing message: {user_message[:50]}...")
+        
+        chat_response = process_chat_message(user_message, context=None)
+        processing_time = time.time() - start_time
+        
+        # Determine state based on intent
+        intent = chat_response["intent"]
+        completed_intents = ["translate", "analyze", "detect_language", "list_languages"]
+        state = "completed" if intent in completed_intents else "input-required"
+        
+        print(f"[TELEX] Intent: {intent}, State: {state}, Time: {processing_time:.2f}s")
+        print(f"[TELEX] Response: {chat_response['message'][:100]}...")
+        
+        # Build minimal conversation history (just current exchange)
+        conversation_history = [
+            {
                 "role": "user",
                 "content": user_message
-            })
-            conversation_history.append({
+            },
+            {
                 "role": "agent",
                 "content": chat_response["message"]
-            })
-            
-            # Build JSON-RPC 2.0 A2A response
-            response_payload = {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "id": task_id,
-                    "contextId": context_id,
-                    "status": {
-                        "state": state,
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                        "message": {
-                            "messageId": str(uuid.uuid4()),
-                            "role": "agent",
-                            "parts": [
-                                {
-                                    "kind": "text",
-                                    "text": chat_response["message"]
-                                }
-                            ],
-                            "kind": "message",
-                            "taskId": task_id
-                        }
-                    },
-                    "artifacts": [],
-                    "history": conversation_history,
-                    "kind": "task"
-                }
             }
-            
-            # Log response for debugging
-            import json
-            print(f"\n{'='*60}")
-            print(f"TELEX RESPONSE - Intent: {intent}, State: {state}")
-            print(f"User Message: {user_message}")
-            print(f"Agent Response: {chat_response['message']}")
-            print(f"Full JSON Response:")
-            print(json.dumps(response_payload, indent=2))
-            print(f"{'='*60}\n")
-            
-            return response_payload
-            
-        finally:
-            db.close()
+        ]
+        
+        # Store in database asynchronously (don't block response)
+        try:
+            db = SessionLocal()
+            try:
+                # Quick history lookup (limit to 2 for speed)
+                history = get_telex_conversation_history(db, context_id, limit=2)
+                
+                # Store conversation (non-blocking)
+                create_telex_conversation(
+                    db=db,
+                    telex_user_id=context_id,
+                    telex_conversation_id=context_id,
+                    telex_message_id=message_id,
+                    user_message=user_message,
+                    agent_response=chat_response["message"],
+                    detected_intent=chat_response["intent"],
+                    action_taken=chat_response["action_taken"],
+                    context_data={"history": [h.user_message for h in history[:2]]},
+                    success=chat_response["success"]
+                )
+                db.commit()
+            except Exception as db_error:
+                print(f"[TELEX] DB error (non-critical): {db_error}")
+                db.rollback()
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"[TELEX] DB connection error (non-critical): {e}")
+        
+        # Build JSON-RPC 2.0 A2A response
+        response_payload = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "id": task_id,
+                "contextId": context_id,
+                "status": {
+                    "state": state,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "message": {
+                        "messageId": str(uuid.uuid4()),
+                        "role": "agent",
+                        "parts": [
+                            {
+                                "kind": "text",
+                                "text": chat_response["message"]
+                            }
+                        ],
+                        "kind": "message",
+                        "taskId": task_id
+                    }
+                },
+                "artifacts": [],
+                "history": conversation_history,
+                "kind": "task"
+            }
+        }
+        
+        # Log response for debugging
+        import json
+        print(f"\n{'='*60}")
+        print(f"TELEX RESPONSE - Intent: {intent}, State: {state}")
+        print(f"User Message: {user_message}")
+        print(f"Agent Response: {chat_response['message']}")
+        print(f"Full JSON Response:")
+        print(json.dumps(response_payload, indent=2))
+        print(f"{'='*60}\n")
+        
+        return response_payload
             
     except Exception as e:
         import traceback

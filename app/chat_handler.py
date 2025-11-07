@@ -324,46 +324,56 @@ def process_chat_message(
             "success": True/False
         }
     """
-    # Detect intent
-    intent, extracted_data = detect_intent(message)
-    
-    # Route to appropriate handler
-    if intent == "translate":
-        result = handle_translation(
-            extracted_data["text"],
-            extracted_data["target_language"]
-        )
-        action = f"translated_to_{extracted_data['target_language']}"
+    try:
+        # Detect intent
+        intent, extracted_data = detect_intent(message)
         
-    elif intent == "detect_language":
-        result = handle_language_detection(extracted_data["text"])
-        action = "detected_language"
+        # Route to appropriate handler with timeout protection
+        if intent == "translate":
+            result = handle_translation(
+                extracted_data["text"],
+                extracted_data["target_language"]
+            )
+            action = f"translated_to_{extracted_data['target_language']}"
+            
+        elif intent == "detect_language":
+            result = handle_language_detection(extracted_data["text"])
+            action = "detected_language"
+            
+        elif intent == "analyze":
+            result = handle_analysis(extracted_data["text"])
+            action = "analyzed_string"
+            
+        elif intent == "help":
+            result = handle_help()
+            action = "provided_help"
+            
+        elif intent == "list_languages":
+            result = handle_list_languages()
+            action = "listed_languages"
+            
+        elif intent == "greeting":
+            result = handle_greeting()
+            action = "greeted_user"
+            
+        else:  # unknown
+            result = handle_unknown()
+            action = "unknown_intent"
         
-    elif intent == "analyze":
-        result = handle_analysis(extracted_data["text"])
-        action = "analyzed_string"
-        
-    elif intent == "help":
-        result = handle_help()
-        action = "provided_help"
-        
-    elif intent == "list_languages":
-        result = handle_list_languages()
-        action = "listed_languages"
-        
-    elif intent == "greeting":
-        result = handle_greeting()
-        action = "greeted_user"
-        
-    else:  # unknown
-        result = handle_unknown()
-        action = "unknown_intent"
-    
-    # Build complete response
-    return {
-        "message": result["message"],
-        "intent": intent,
-        "action_taken": action,
-        "data": result.get("data"),
-        "success": result["success"]
-    }
+        # Build complete response
+        return {
+            "message": result["message"],
+            "intent": intent,
+            "action_taken": action,
+            "data": result.get("data"),
+            "success": result["success"]
+        }
+    except Exception as e:
+        # Fallback for any processing errors
+        return {
+            "message": f"Sorry, I encountered an error: {str(e)}",
+            "intent": "error",
+            "action_taken": "error_handling",
+            "data": None,
+            "success": False
+        }
