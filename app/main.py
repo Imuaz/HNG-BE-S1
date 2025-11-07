@@ -1028,25 +1028,13 @@ async def a2a_multilingo_agent_post(request: Request):
     """
     A2A Protocol POST endpoint for Mastra integration with Telex.
     
-    This endpoint follows the Mastra A2A protocol format.
-    Telex will send requests here when users interact with the agent.
-    
-    Expected request format from Telex:
-    {
-        "messages": [
-            {
-                "role": "user",
-                "content": "Translate 'hello' to Spanish"
-            }
-        ],
-        "context": {...}
-    }
-    
-    Expected response format for Telex:
-    {
-        "text": "Response text here"
-    }
+    Supports both:
+    1. JSON-RPC 2.0 format (for Telex)
+    2. Simple REST format (for direct testing)
     """
+    import uuid
+    from datetime import datetime
+    
     try:
         from app.chat_handler import process_chat_message
         from app.database import SessionLocal
@@ -1054,46 +1042,55 @@ async def a2a_multilingo_agent_post(request: Request):
         # Get request body
         try:
             body = await request.json()
-        except:
-            body = {}
-        
-        # Handle empty request
-        if not body or not body.get("messages"):
+        except Exception as e:
             return {
-                "text": "👋 Hello! I'm MultiLingo Agent!\n\nI can help you with:\n• Translations (25+ languages)\n• Language detection\n• String analysis\n\nTry: 'Translate hello to Spanish'"
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32700,
+                    "message": "Parse error",
+                    "data": str(e)
+                }
             }
         
-        # Extract message from A2A format
-        messages = body.get("messages", [])
-        user_message = ""
-        user_id = body.get("userId") or body.get("user_id") or body.get("contextId") or "telex_user"
+        # Detect request format
+        is_jsonrpc = "jsonrpc" in body or "method" in body
         
-        # Get the last user message
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                user_message = msg.get("content", "")
-                break
-        
-        if not user_message:
-            return {
-                "text": "I didn't receive a message. Please try again!"
-            }
-        
-        # Process the message first (fastest path)
-        chat_response = process_chat_message(user_message, context=None)
-        
-        # Store in database asynchronously (don't block response)
-        try:
+        # ============================================================
+        # Handle Simple REST Format (for testing)
+        # ============================================================
+        if not is_jsonrpc:
+            messages = body.get("messages", [])
+            user_message = ""
+            user_id = body.get("userId") or body.get("user_id") or "test_user"
+            
+            # Extract user message
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    user_message = msg.get("content", "")
+                    break
+            
+            if not user_message:
+                return {
+                    "error": "No message provided",
+                    "message": "Please provide a message in the format: {\"messages\": [{\"role\": \"user\", \"content\": \"your message\"}]}"
+                }
+            
+            # Get database session
             db = SessionLocal()
+            
             try:
-                # Quick context lookup (limit to 2 for speed)
-                history = get_telex_conversation_history(db, user_id, limit=2)
+                # Get conversation context
+                history = get_telex_conversation_history(db, user_id, limit=5)
                 context = {
                     "last_text": history[0].user_message if history else None,
-                    "history": [h.user_message for h in history[:2]]
+                    "history": [h.user_message for h in history[:3]]
                 }
                 
-                # Store conversation (non-blocking)
+                # Process the message
+                chat_response = process_chat_message(user_message, context)
+                
+                # Store conversation
                 create_telex_conversation(
                     db=db,
                     telex_user_id=user_id,
@@ -1104,20 +1101,193 @@ async def a2a_multilingo_agent_post(request: Request):
                     context_data=context,
                     success=chat_response["success"]
                 )
+                
+                # Return simple format
+                return {
+                    "response": chat_response["message"],
+                    "intent": chat_response["intent"],
+                    "success": chat_response["success"],
+                    "data": chat_response.get("data")
+                }
+                
             finally:
                 db.close()
-        except Exception as db_error:
-            # Log but don't fail the request if DB fails
-            print(f"DB error (non-critical): {db_error}")
         
-        # Return in simple text format that Telex expects
-        return {
-            "text": chat_response["message"]
-        }
+        # ============================================================
+        # Handle JSON-RPC 2.0 Format (for Telex)
+        # ============================================================
+        
+        # Extract JSON-RPC fields
+        jsonrpc_version = body.get("jsonrpc", "2.0")
+        request_id = body.get("id")
+        method = body.get("method")
+        params = body.get("params", {})
+        
+        # Validate JSON-RPC request
+        if jsonrpc_version != "2.0":
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                    "data": "Only JSON-RPC 2.0 is supported"
+                }
+            }
+        
+        if method != "message/send":
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32601,
+                    "message": "Method not found",
+                    "data": f"Method '{method}' is not supported. Expected 'message/send'"
+                }
+            }
+        
+        # Extract message details
+        message = params.get("message", {})
+        parts = message.get("parts", [])
+        task_id = message.get("taskId", str(uuid.uuid4()))
+        message_id = message.get("messageId", str(uuid.uuid4()))
+        
+        # Extract user message text
+        user_message = ""
+        for part in parts:
+            if part.get("kind") == "text":
+                user_message = part.get("text", "")
+                break
+        
+        if not user_message:
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "id": task_id,
+                    "contextId": str(uuid.uuid4()),
+                    "status": {
+                        "state": "input-required",
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "message": {
+                            "messageId": str(uuid.uuid4()),
+                            "role": "agent",
+                            "parts": [
+                                {
+                                    "kind": "text",
+                                    "text": "I didn't receive a message. Please try again!"
+                                }
+                            ],
+                            "kind": "message",
+                            "taskId": task_id
+                        }
+                    },
+                    "artifacts": [],
+                    "history": [],
+                    "kind": "task"
+                }
+            }
+        
+        # Get database session
+        db = SessionLocal()
+        context_id = params.get("contextId", str(uuid.uuid4()))
+        
+        try:
+            # Get conversation context
+            history = get_telex_conversation_history(db, context_id, limit=5)
+            context = {
+                "last_text": history[0].user_message if history else None,
+                "history": [h.user_message for h in history[:3]]
+            }
+            
+            # Process the message
+            chat_response = process_chat_message(user_message, context)
+            
+            # Store conversation
+            create_telex_conversation(
+                db=db,
+                telex_user_id=context_id,
+                telex_conversation_id=context_id,
+                telex_message_id=message_id,
+                user_message=user_message,
+                agent_response=chat_response["message"],
+                detected_intent=chat_response["intent"],
+                action_taken=chat_response["action_taken"],
+                context_data=context,
+                success=chat_response["success"]
+            )
+            
+            # Build conversation history for response
+            conversation_history = []
+            for h in reversed(history[:5]):
+                conversation_history.append({
+                    "role": "user",
+                    "content": h.user_message
+                })
+                conversation_history.append({
+                    "role": "agent",
+                    "content": h.agent_response
+                })
+            
+            # Add current exchange
+            conversation_history.append({
+                "role": "user",
+                "content": user_message
+            })
+            conversation_history.append({
+                "role": "agent",
+                "content": chat_response["message"]
+            })
+            
+            # Return in JSON-RPC 2.0 A2A format
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "id": task_id,
+                    "contextId": context_id,
+                    "status": {
+                        "state": "input-required",
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "message": {
+                            "messageId": str(uuid.uuid4()),
+                            "role": "agent",
+                            "parts": [
+                                {
+                                    "kind": "text",
+                                    "text": chat_response["message"]
+                                }
+                            ],
+                            "kind": "message",
+                            "taskId": task_id
+                        }
+                    },
+                    "artifacts": [],
+                    "history": conversation_history,
+                    "kind": "task"
+                }
+            }
+            
+        finally:
+            db.close()
             
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return {
-            "text": "Sorry, I encountered an error processing your request. Please try again! 🔄"
-        }
+        
+        # Check if it's JSON-RPC request
+        if 'body' in locals() and ('jsonrpc' in body or 'method' in body):
+            return {
+                "jsonrpc": "2.0",
+                "id": body.get("id") if 'body' in locals() else None,
+                "error": {
+                    "code": -32603,
+                    "message": "Internal error",
+                    "data": str(e)
+                }
+            }
+        else:
+            return {
+                "error": "Internal server error",
+                "message": str(e)
+            }
