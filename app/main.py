@@ -1079,39 +1079,41 @@ async def a2a_multilingo_agent_post(request: Request):
                 "text": "I didn't receive a message. Please try again!"
             }
         
-        # Get database session
-        db = SessionLocal()
+        # Process the message first (fastest path)
+        chat_response = process_chat_message(user_message, context=None)
         
+        # Store in database asynchronously (don't block response)
         try:
-            # Get conversation context
-            history = get_telex_conversation_history(db, user_id, limit=5)
-            context = {
-                "last_text": history[0].user_message if history else None,
-                "history": [h.user_message for h in history[:3]]
-            }
-            
-            # Process the message
-            chat_response = process_chat_message(user_message, context)
-            
-            # Store conversation
-            create_telex_conversation(
-                db=db,
-                telex_user_id=user_id,
-                user_message=user_message,
-                agent_response=chat_response["message"],
-                detected_intent=chat_response["intent"],
-                action_taken=chat_response["action_taken"],
-                context_data=context,
-                success=chat_response["success"]
-            )
-            
-            # Return in simple text format that Telex expects
-            return {
-                "text": chat_response["message"]
-            }
-            
-        finally:
-            db.close()
+            db = SessionLocal()
+            try:
+                # Quick context lookup (limit to 2 for speed)
+                history = get_telex_conversation_history(db, user_id, limit=2)
+                context = {
+                    "last_text": history[0].user_message if history else None,
+                    "history": [h.user_message for h in history[:2]]
+                }
+                
+                # Store conversation (non-blocking)
+                create_telex_conversation(
+                    db=db,
+                    telex_user_id=user_id,
+                    user_message=user_message,
+                    agent_response=chat_response["message"],
+                    detected_intent=chat_response["intent"],
+                    action_taken=chat_response["action_taken"],
+                    context_data=context,
+                    success=chat_response["success"]
+                )
+            finally:
+                db.close()
+        except Exception as db_error:
+            # Log but don't fail the request if DB fails
+            print(f"DB error (non-critical): {db_error}")
+        
+        # Return in simple text format that Telex expects
+        return {
+            "text": chat_response["message"]
+        }
             
     except Exception as e:
         import traceback

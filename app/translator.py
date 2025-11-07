@@ -15,10 +15,23 @@ from langdetect import detect, LangDetectException
 from typing import Dict, List, Optional, Tuple
 import logging
 from functools import lru_cache
+import requests
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Configure requests timeout globally for deep-translator
+# This prevents hanging requests in production
+original_request = requests.Session.request
+
+def request_with_timeout(self, method, url, **kwargs):
+    """Wrapper to add default timeout to all requests"""
+    if 'timeout' not in kwargs:
+        kwargs['timeout'] = (5, 10)  # (connect timeout, read timeout)
+    return original_request(self, method, url, **kwargs)
+
+requests.Session.request = request_with_timeout
 
 # Simple in-memory cache for translations (speeds up repeat requests)
 _translation_cache = {}
@@ -121,11 +134,22 @@ def translate_text(
             source_lang = normalize_language_code(source_lang)
             detected_name = LANGUAGE_NAMES.get(source_lang, source_lang)
         
-        # Perform translation using deep-translator
+        # Perform translation using deep-translator with timeout handling
         logger.info(f"Translating from {source_lang} to {target_lang}")
         
-        translator = GoogleTranslator(source=source_lang, target=target_lang)
-        translated = translator.translate(text)
+        try:
+            translator = GoogleTranslator(source=source_lang, target=target_lang)
+            # Deep translator uses requests internally, which respects timeouts
+            translated = translator.translate(text)
+        except Exception as e:
+            # Handle timeout or connection errors gracefully
+            error_msg = str(e).lower()
+            if 'timeout' in error_msg or 'timed out' in error_msg:
+                raise ValueError("Translation service timed out. Please try again.")
+            elif 'connection' in error_msg or 'network' in error_msg:
+                raise ValueError("Network error. Please check your connection.")
+            else:
+                raise ValueError(f"Translation failed: {str(e)}")
         
         # If source was 'auto', try to detect what it actually was
         if source_lang == 'auto':
