@@ -6,15 +6,12 @@ RESTful API for analyzing and storing strings with their computed properties.
 Run with: uvicorn app.main:app --reload
 """
 
-from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Request
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import Optional, List, Dict
-from datetime import datetime
-import asyncio
-import logging
+from typing import Optional, Dict, List
 
 from app.database import get_db
 from app.schemas import (
@@ -30,9 +27,7 @@ from app.schemas import (
     TelexWebhookPayload,
     TelexResponse,
     ChatRequest,
-    ChatResponse,
-    AgentCard,
-    AgentSkill
+    ChatResponse
 )
 from app.crud import (
     create_string,
@@ -51,9 +46,6 @@ from app.crud import (
 # ============================================================================
 # CREATE FASTAPI APPLICATION
 # ============================================================================
-
-# Setup logging
-logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="String Analyzer API",
@@ -541,82 +533,6 @@ def health_check(db: Session = Depends(get_db)):
             "database": "disconnected",
             "error": str(e)
         }
-
-
-# ============================================================================
-# AGENT CARD ENDPOINT (Telex Agent Discovery)
-# ============================================================================
-
-@app.get(
-    "/.well-known/agent-card",
-    response_model=AgentCard,
-    tags=["Agent Discovery"],
-    responses={
-        200: {"description": "Agent card retrieved successfully"}
-    }
-)
-def get_agent_card():
-    """
-    Agent Card endpoint for Telex.im discovery.
-    
-    This endpoint provides metadata about the MultiLingo Agent.
-    Telex.im uses this to discover and register agents.
-    
-    Standard location: /.well-known/agent-card
-    """
-    import os
-    from app.translator import get_supported_languages
-    
-    # Get base URL from environment
-    base_url = os.getenv("BASE_URL", "https://your-app-domain.com")
-    webhook_url = f"{base_url}/webhook/telex"
-    
-    # Get supported languages
-    supported_langs = get_supported_languages()
-    lang_codes = list(supported_langs.values())[:10]
-    
-    return AgentCard(
-        name="MultiLingo Agent",
-        description="AI-powered translation and string analysis agent supporting 25+ languages",
-        version="2.0.0",
-        author="HNG Backend Team",
-        homepage="https://github.com/yourusername/multilingo-agent",
-        webhook_url=webhook_url,
-        skills=[
-            AgentSkill(
-                name="Translation",
-                description="Translate text between 25+ languages",
-                examples=[
-                    "Translate 'hello' to Spanish",
-                    "How do you say 'thank you' in French?"
-                ]
-            ),
-            AgentSkill(
-                name="Language Detection",
-                description="Detect the language of any text",
-                examples=[
-                    "What language is 'bonjour'?",
-                    "Detect language of 'hola mundo'"
-                ]
-            ),
-            AgentSkill(
-                name="String Analysis",
-                description="Analyze text properties",
-                examples=[
-                    "Analyze 'racecar'",
-                    "Is 'level' a palindrome?"
-                ]
-            )
-        ],
-        supported_languages=lang_codes,
-        tags=["translation", "language", "multilingual", "analysis"],
-        icon_url="https://api.dicebear.com/7.x/bottts/svg?seed=multilingo",
-        metadata={
-            "max_text_length": 5000,
-            "response_time": "fast",
-            "total_languages": len(supported_langs)
-        }
-    )
 
 
 # ============================================================================
@@ -1108,16 +1024,32 @@ async def a2a_multilingo_agent_info():
         200: {"description": "A2A request processed successfully"}
     }
 )
-async def a2a_multilingo_agent_post(request: Request, background_tasks: BackgroundTasks):
+async def a2a_multilingo_agent_post(request: Request):
     """
     A2A Protocol POST endpoint for Mastra integration with Telex.
     
-    Follows JSON-RPC 2.0 protocol with task-based structure.
+    This endpoint follows the Mastra A2A protocol format.
+    Telex will send requests here when users interact with the agent.
+    
+    Expected request format from Telex:
+    {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Translate 'hello' to Spanish"
+            }
+        ],
+        "context": {...}
+    }
+    
+    Expected response format for Telex:
+    {
+        "text": "Response text here"
+    }
     """
     try:
         from app.chat_handler import process_chat_message
-        import uuid
-        from datetime import datetime
+        from app.database import SessionLocal
         
         # Get request body
         try:
@@ -1125,213 +1057,65 @@ async def a2a_multilingo_agent_post(request: Request, background_tasks: Backgrou
         except:
             body = {}
         
-        # Extract JSON-RPC fields
-        jsonrpc_id = body.get("id", str(uuid.uuid4()))
+        # Handle empty request
+        if not body or not body.get("messages"):
+            return {
+                "text": "👋 Hello! I'm MultiLingo Agent!\n\nI can help you with:\n• Translations (25+ languages)\n• Language detection\n• String analysis\n\nTry: 'Translate hello to Spanish'"
+            }
         
-        # Extract message from request
+        # Extract message from A2A format
         messages = body.get("messages", [])
         user_message = ""
+        user_id = body.get("userId") or body.get("user_id") or body.get("contextId") or "telex_user"
         
         # Get the last user message
         for msg in reversed(messages):
             if msg.get("role") == "user":
-                # Try multiple message formats:
-                # 1. Standard: {"role": "user", "content": "..."}
-                # 2. Alternative: {"role": "user", "text": "..."}
-                # 3. Parts format: {"role": "user", "parts": [{"kind": "text", "text": "..."}]}
-                user_message = msg.get("content") or msg.get("text")
-                
-                # Check parts format if content/text not found
-                if not user_message and "parts" in msg:
-                    parts = msg.get("parts", [])
-                    for part in parts:
-                        if part.get("kind") == "text" and part.get("text"):
-                            user_message = part.get("text")
-                            break
-                
-                if user_message:
-                    break
+                user_message = msg.get("content", "")
+                break
         
-        # Handle empty message - default to help
         if not user_message:
-            user_message = "help"
-        
-        # Log the extracted message for debugging
-        logger.info(f"A2A: Extracted user message: '{user_message}'")
-        
-        # Fast path for simple commands (no API calls needed)
-        user_message_lower = user_message.lower().strip()
-        
-        # Quick response for help/greeting/list (no processing needed)
-        if user_message_lower in ['help', 'hi', 'hello', 'hey'] or 'list' in user_message_lower and 'lang' in user_message_lower:
-            task_id = str(uuid.uuid4())
-            context_id = body.get("contextId", str(uuid.uuid4()))
-            message_id = str(uuid.uuid4())
-            timestamp = datetime.utcnow().isoformat() + "Z"
-            
-            if user_message_lower == 'help':
-                response_text = "I can help with:\n\n1. Translation - \"Translate 'hello' to Spanish\"\n2. Language Detection - \"What language is 'bonjour'?\"\n3. String Analysis - \"Analyze 'racecar'\"\n4. List Languages - \"list languages\"\n\nJust ask naturally!"
-                intent_name = "help"
-            elif 'list' in user_message_lower:
-                response_text = "Supported Languages:\nArabic (ar), Chinese (zh-cn), Czech (cs), Danish (da), Dutch (nl), English (en), Finnish (fi), French (fr), German (de), Greek (el)\n\n+ 15 more languages"
-                intent_name = "list_languages"
-            else:
-                response_text = "Hello! I'm MultiLingo Agent. I can translate text, detect languages, and analyze strings. Type 'help' for commands!"
-                intent_name = "greeting"
-            
             return {
-                "jsonrpc": "2.0",
-                "id": jsonrpc_id,
-                "result": {
-                    "id": task_id,
-                    "contextId": context_id,
-                    "status": {
-                        "state": "input-required",
-                        "timestamp": timestamp,
-                        "message": {
-                            "messageId": message_id,
-                            "role": "agent",
-                            "parts": [{"kind": "text", "text": response_text}],
-                            "kind": "message",
-                            "taskId": task_id
-                        }
-                    },
-                    "artifacts": [{"artifactId": str(uuid.uuid4()), "name": intent_name, "parts": [{"kind": "text", "text": response_text}]}],
-                    "history": messages,
-                    "kind": "task"
-                }
+                "text": "I didn't receive a message. Please try again!"
             }
         
-        # Minimal context (no DB query for speed)
-        context = {}
+        # Get database session
+        db = SessionLocal()
         
-        # Process the message with timeout
         try:
-            chat_response = await asyncio.wait_for(
-                asyncio.to_thread(process_chat_message, user_message, context),
-                timeout=15  # 15 second timeout to allow for translation API calls
-            )
-        except asyncio.TimeoutError:
-            # Return timeout response in JSON-RPC format
-            task_id = str(uuid.uuid4())
-            context_id = body.get("contextId", str(uuid.uuid4()))
-            message_id = str(uuid.uuid4())
-            timestamp = datetime.utcnow().isoformat() + "Z"
+            # Get conversation context
+            history = get_telex_conversation_history(db, user_id, limit=5)
+            context = {
+                "last_text": history[0].user_message if history else None,
+                "history": [h.user_message for h in history[:3]]
+            }
             
+            # Process the message
+            chat_response = process_chat_message(user_message, context)
+            
+            # Store conversation
+            create_telex_conversation(
+                db=db,
+                telex_user_id=user_id,
+                user_message=user_message,
+                agent_response=chat_response["message"],
+                detected_intent=chat_response["intent"],
+                action_taken=chat_response["action_taken"],
+                context_data=context,
+                success=chat_response["success"]
+            )
+            
+            # Return in simple text format that Telex expects
             return {
-                "jsonrpc": "2.0",
-                "id": jsonrpc_id,
-                "result": {
-                    "id": task_id,
-                    "contextId": context_id,
-                    "status": {
-                        "state": "input-required",
-                        "timestamp": timestamp,
-                        "message": {
-                            "messageId": message_id,
-                            "role": "agent",
-                            "parts": [
-                                {
-                                    "kind": "text",
-                                    "text": "Request timeout. Please try again!"
-                                }
-                            ],
-                            "kind": "message",
-                            "taskId": task_id
-                        }
-                    },
-                    "artifacts": [],
-                    "history": messages,
-                    "kind": "task"
-                }
+                "text": chat_response["message"]
             }
-        
-        # Store conversation in background (non-blocking, runs after response)
-        def store_conversation_bg():
-            try:
-                from app.database import SessionLocal
-                db = SessionLocal()
-                try:
-                    # Quick DB write - don't query history
-                    create_telex_conversation(
-                        db=db,
-                        telex_user_id="telex_user",
-                        user_message=user_message,
-                        agent_response=chat_response["message"],
-                        detected_intent=chat_response["intent"],
-                        action_taken=chat_response["action_taken"],
-                        context_data={},
-                        success=chat_response["success"]
-                    )
-                    db.commit()
-                except Exception:
-                    db.rollback()
-                finally:
-                    db.close()
-            except Exception:
-                pass  # Fail silently
-        
-        # Add background task (executes AFTER response is sent to client)
-        background_tasks.add_task(store_conversation_bg)
-        
-        # Generate IDs
-        task_id = str(uuid.uuid4())
-        context_id = body.get("contextId", str(uuid.uuid4()))
-        message_id = str(uuid.uuid4())
-        artifact_id = str(uuid.uuid4())
-        timestamp = datetime.utcnow().isoformat() + "Z"
-        
-        # Build JSON-RPC 2.0 response (matching chess agent format)
-        return {
-            "jsonrpc": "2.0",
-            "id": jsonrpc_id,
-            "result": {
-                "id": task_id,
-                "contextId": context_id,
-                "status": {
-                    "state": "input-required",
-                    "timestamp": timestamp,
-                    "message": {
-                        "messageId": message_id,
-                        "role": "agent",
-                        "parts": [
-                            {
-                                "kind": "text",
-                                "text": chat_response["message"]
-                            }
-                        ],
-                        "kind": "message",
-                        "taskId": task_id
-                    }
-                },
-                "artifacts": [
-                    {
-                        "artifactId": artifact_id,
-                        "name": chat_response["intent"],
-                        "parts": [
-                            {
-                                "kind": "text",
-                                "text": chat_response["message"]
-                            }
-                        ]
-                    }
-                ],
-                "history": messages,
-                "kind": "task"
-            }
-        }
+            
+        finally:
+            db.close()
             
     except Exception as e:
         import traceback
         traceback.print_exc()
-        
-        # Error response in JSON-RPC format
         return {
-            "jsonrpc": "2.0",
-            "id": body.get("id", "error"),
-            "error": {
-                "code": -32603,
-                "message": "Internal error",
-                "data": str(e)
-            }
+            "text": "Sorry, I encountered an error processing your request. Please try again! 🔄"
         }
