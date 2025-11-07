@@ -1203,6 +1203,13 @@ async def a2a_multilingo_agent_post(request: Request):
             # Process the message
             chat_response = process_chat_message(user_message, context)
             
+            # Determine state based on intent
+            # "completed" for actions that produce a result (translate, analyze, detect_language, list_languages)
+            # "input-required" for help, greeting, unknown (conversational)
+            intent = chat_response["intent"]
+            completed_intents = ["translate", "analyze", "detect_language", "list_languages"]
+            state = "completed" if intent in completed_intents else "input-required"
+            
             # Store conversation
             create_telex_conversation(
                 db=db,
@@ -1239,15 +1246,15 @@ async def a2a_multilingo_agent_post(request: Request):
                 "content": chat_response["message"]
             })
             
-            # Return in JSON-RPC 2.0 A2A format
-            return {
+            # Build JSON-RPC 2.0 A2A response
+            response_payload = {
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "result": {
                     "id": task_id,
                     "contextId": context_id,
                     "status": {
-                        "state": "input-required",
+                        "state": state,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                         "message": {
                             "messageId": str(uuid.uuid4()),
@@ -1267,6 +1274,18 @@ async def a2a_multilingo_agent_post(request: Request):
                     "kind": "task"
                 }
             }
+            
+            # Log response for debugging
+            import json
+            print(f"\n{'='*60}")
+            print(f"TELEX RESPONSE - Intent: {intent}, State: {state}")
+            print(f"User Message: {user_message}")
+            print(f"Agent Response: {chat_response['message']}")
+            print(f"Full JSON Response:")
+            print(json.dumps(response_payload, indent=2))
+            print(f"{'='*60}\n")
+            
+            return response_payload
             
         finally:
             db.close()

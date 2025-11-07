@@ -132,7 +132,7 @@ def handle_translation(text: str, target_language: str, analyze: bool = False) -
         result = translate_text(text, target_lang_code)
         
         # Build ultra-simple response (avoid truncation)
-        message = f"{result['original_text']} → {result['translated_text']}"
+        message = f"{result['original_text']} -> {result['translated_text']}"
         
         return {
             "success": True,
