@@ -58,9 +58,10 @@ def detect_intent(message: str) -> Tuple[str, Dict]:
             return "translate", {"text": match.group(1), "target_language": match.group(2)}
         
         # Without quotes: translate good afternoon to spanish
-        match = re.search(r"translate\s+(.+?)\s+(?:to|into)\s+(\w+)", message_lower)
+        # Use greedy match to capture all text before "to/into"
+        match = re.search(r"translate\s+(.+)\s+(?:to|into)\s+(\w+)", message_lower)
         if match:
-            return "translate", {"text": match.group(1), "target_language": match.group(2)}
+            return "translate", {"text": match.group(1).strip(), "target_language": match.group(2)}
     
     # Intent 2: Language detection
     if 'language' in message_lower or 'detect' in message_lower:
