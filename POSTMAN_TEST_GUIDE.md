@@ -17,17 +17,30 @@ Content-Type: application/json
 
 ## Request Body Format
 
-### Translation Request
+### Option 1: Simple Format (Fast - No DB)
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": "test-123",
   "messages": [
     {
       "role": "user",
       "content": "translate hello to Spanish"
     }
   ]
+}
+```
+
+### Option 2: JSON-RPC Format (For Telex Integration)
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "test-123",
+  "method": "message/send",
+  "params": {
+    "message": {
+      "role": "user",
+      "content": "translate hello to Spanish"
+    }
+  }
 }
 ```
 

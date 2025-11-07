@@ -28,7 +28,7 @@ original_request = requests.Session.request
 def request_with_timeout(self, method, url, **kwargs):
     """Wrapper to add default timeout to all requests"""
     if 'timeout' not in kwargs:
-        kwargs['timeout'] = (1.5, 3)  # (connect timeout, read timeout) - very aggressive for speed
+        kwargs['timeout'] = (2, 5)  # (connect timeout, read timeout) - balanced for speed and reliability
     return original_request(self, method, url, **kwargs)
 
 requests.Session.request = request_with_timeout
@@ -122,28 +122,21 @@ def translate_text(
             return _translation_cache[cache_key]
         
         # Auto-detect source language if not provided
-        # Skip pre-detection for speed - let Google Translate handle it
-        detected_name = "auto-detected"
+        # Let Google Translate handle detection for speed
         if source_lang is None:
             source_lang = 'auto'
         else:
             source_lang = normalize_language_code(source_lang)
-            detected_name = LANGUAGE_NAMES.get(source_lang, source_lang)
         
         # Perform translation using deep-translator with timeout handling
-        import time
-        translate_start = time.time()
-        logger.info(f"Translating from {source_lang} to {target_lang}")
+        logger.info(f"Translating to {target_lang}")
         
         try:
             translator = GoogleTranslator(source=source_lang, target=target_lang)
-            # Deep translator uses requests internally, which respects timeouts
             translated = translator.translate(text)
-            translate_time = time.time() - translate_start
-            logger.info(f"Translation completed in {translate_time:.2f}s")
+            logger.info(f"Translation successful: '{text}' → '{translated}'")
         except Exception as e:
-            translate_time = time.time() - translate_start
-            logger.error(f"Translation failed after {translate_time:.2f}s: {e}")
+            logger.error(f"Translation failed: {e}")
             # Handle timeout or connection errors gracefully
             error_msg = str(e).lower()
             if 'timeout' in error_msg or 'timed out' in error_msg:
@@ -153,20 +146,18 @@ def translate_text(
             else:
                 raise ValueError(f"Translation failed: {str(e)}")
         
-        # Skip post-detection for speed - use 'auto' as source
+        # Build result
         result = {
             "original_text": text,
             "translated_text": translated,
-            "source_language": source_lang if source_lang != 'auto' else 'auto',
-            "target_language": target_lang,
-            "detected_language": detected_name
+            "source_language": source_lang,
+            "target_language": target_lang
         }
         
         # Cache the result (limit cache size to 1000 entries)
         if len(_translation_cache) < 1000:
             _translation_cache[cache_key] = result
         
-        logger.info(f"Translation successful: '{text}' → '{translated}'")
         return result
         
     except Exception as e:

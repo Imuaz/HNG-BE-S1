@@ -1057,12 +1057,11 @@ async def a2a_multilingo_agent_post(request: Request):
         is_jsonrpc = "jsonrpc" in body or "method" in body
         
         # ============================================================
-        # Handle Simple REST Format (for testing)
+        # Handle Simple REST Format (for testing - fast, no DB)
         # ============================================================
         if not is_jsonrpc:
             messages = body.get("messages", [])
             user_message = ""
-            user_id = body.get("userId") or body.get("user_id") or "test_user"
             
             # Extract user message
             for msg in reversed(messages):
@@ -1076,42 +1075,16 @@ async def a2a_multilingo_agent_post(request: Request):
                     "message": "Please provide a message in the format: {\"messages\": [{\"role\": \"user\", \"content\": \"your message\"}]}"
                 }
             
-            # Get database session
-            db = SessionLocal()
+            # Process the message (no DB for speed)
+            chat_response = process_chat_message(user_message, {})
             
-            try:
-                # Get conversation context
-                history = get_telex_conversation_history(db, user_id, limit=5)
-                context = {
-                    "last_text": history[0].user_message if history else None,
-                    "history": [h.user_message for h in history[:3]]
-                }
-                
-                # Process the message
-                chat_response = process_chat_message(user_message, context)
-                
-                # Store conversation
-                create_telex_conversation(
-                    db=db,
-                    telex_user_id=user_id,
-                    user_message=user_message,
-                    agent_response=chat_response["message"],
-                    detected_intent=chat_response["intent"],
-                    action_taken=chat_response["action_taken"],
-                    context_data=context,
-                    success=chat_response["success"]
-                )
-                
-                # Return simple format
-                return {
-                    "response": chat_response["message"],
-                    "intent": chat_response["intent"],
-                    "success": chat_response["success"],
-                    "data": chat_response.get("data")
-                }
-                
-            finally:
-                db.close()
+            # Return simple format
+            return {
+                "response": chat_response["message"],
+                "intent": chat_response["intent"],
+                "success": chat_response["success"],
+                "data": chat_response.get("data")
+            }
         
         # ============================================================
         # Handle JSON-RPC 2.0 Format (for Telex)
