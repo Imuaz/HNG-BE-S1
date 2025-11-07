@@ -1108,23 +1108,12 @@ async def a2a_multilingo_agent_post(request: Request, background_tasks: Backgrou
     """
     A2A Protocol POST endpoint for Mastra integration with Telex.
     
-    This endpoint follows the Mastra A2A protocol format.
-    Telex will send requests here when users interact with the agent.
-    
-    Expected request format:
-    {
-        "messages": [
-            {
-                "role": "user",
-                "content": "Translate 'hello' to Spanish"
-            }
-        ],
-        "context": {...}
-    }
+    Follows JSON-RPC 2.0 protocol with task-based structure.
     """
     try:
         from app.chat_handler import process_chat_message
-        from app.database import SessionLocal
+        import uuid
+        from datetime import datetime
         
         # Get request body
         try:
@@ -1132,21 +1121,12 @@ async def a2a_multilingo_agent_post(request: Request, background_tasks: Backgrou
         except:
             body = {}
         
-        # Handle empty request
-        if not body or not body.get("messages"):
-            return {
-                "role": "assistant",
-                "content": "👋 Hello! I'm MultiLingo Agent!\n\nI can help you with:\n• Translations (25+ languages)\n• Language detection\n• String analysis\n\nTry: 'Translate hello to Spanish'",
-                "metadata": {
-                    "intent": "greeting",
-                    "success": True
-                }
-            }
+        # Extract JSON-RPC fields
+        jsonrpc_id = body.get("id", str(uuid.uuid4()))
         
-        # Extract message from A2A format
+        # Extract message from request
         messages = body.get("messages", [])
         user_message = ""
-        user_id = body.get("userId") or body.get("user_id") or "telex_user"
         
         # Get the last user message
         for msg in reversed(messages):
@@ -1154,14 +1134,9 @@ async def a2a_multilingo_agent_post(request: Request, background_tasks: Backgrou
                 user_message = msg.get("content", "")
                 break
         
+        # Handle empty message - default to help
         if not user_message:
-            return {
-                "role": "assistant",
-                "content": "I didn't receive a message. Please try again!",
-                "metadata": {
-                    "success": False
-                }
-            }
+            user_message = "help"
         
         # Minimal context (no DB query for speed)
         context = {}
@@ -1209,26 +1184,64 @@ async def a2a_multilingo_agent_post(request: Request, background_tasks: Backgrou
         # Add background task (runs after response is sent)
         background_tasks.add_task(store_conversation_bg)
         
-        # Return immediately (don't wait for DB)
+        # Generate IDs
+        task_id = str(uuid.uuid4())
+        context_id = body.get("contextId", str(uuid.uuid4()))
+        message_id = str(uuid.uuid4())
+        artifact_id = str(uuid.uuid4())
+        timestamp = datetime.utcnow().isoformat() + "Z"
+        
+        # Build JSON-RPC 2.0 response (matching chess agent format)
         return {
-            "role": "assistant",
-            "content": chat_response["message"],
-            "metadata": {
-                "intent": chat_response["intent"],
-                "action": chat_response["action_taken"],
-                "success": chat_response["success"],
-                "data": chat_response.get("data")
+            "jsonrpc": "2.0",
+            "id": jsonrpc_id,
+            "result": {
+                "id": task_id,
+                "contextId": context_id,
+                "status": {
+                    "state": "input-required",
+                    "timestamp": timestamp,
+                    "message": {
+                        "messageId": message_id,
+                        "role": "agent",
+                        "parts": [
+                            {
+                                "kind": "text",
+                                "text": chat_response["message"]
+                            }
+                        ],
+                        "kind": "message",
+                        "taskId": task_id
+                    }
+                },
+                "artifacts": [
+                    {
+                        "artifactId": artifact_id,
+                        "name": chat_response["intent"],
+                        "parts": [
+                            {
+                                "kind": "text",
+                                "text": chat_response["message"]
+                            }
+                        ]
+                    }
+                ],
+                "history": messages,
+                "kind": "task"
             }
         }
             
     except Exception as e:
         import traceback
         traceback.print_exc()
+        
+        # Error response in JSON-RPC format
         return {
-            "role": "assistant",
-            "content": "Sorry, I encountered an error processing your request. Please try again! 🔄",
-            "metadata": {
-                "error": str(e),
-                "success": False
+            "jsonrpc": "2.0",
+            "id": body.get("id", "error"),
+            "error": {
+                "code": -32603,
+                "message": "Internal error",
+                "data": str(e)
             }
         }
