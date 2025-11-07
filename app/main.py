@@ -1184,11 +1184,11 @@ async def a2a_multilingo_agent_post(request: Request, background_tasks: Backgrou
         # Minimal context (no DB query for speed)
         context = {}
         
-        # Process the message with shorter timeout for production
+        # Process the message with timeout
         try:
             chat_response = await asyncio.wait_for(
                 asyncio.to_thread(process_chat_message, user_message, context),
-                timeout=5  # 5 second timeout for faster response
+                timeout=15  # 15 second timeout to allow for translation API calls
             )
         except asyncio.TimeoutError:
             # Return timeout response in JSON-RPC format

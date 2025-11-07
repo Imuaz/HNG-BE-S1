@@ -1,0 +1,13 @@
+{
+    "jsonrpc": "2.0",
+    "id": "test-123",
+    "method": "task.execute",
+    "params": {
+        "messages": [
+            {
+                "role": "user",
+                "content": "translate 'hello' to Spanish"
+            }
+        ]
+    }
+}
